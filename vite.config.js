@@ -41,19 +41,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webp,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/_/, /^\/[^/?]+\.[^/]+$/],
         runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/npm\/chart\.js.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'chartjs-cache',
-              expiration: {
-                maxEntries: 4,
-                maxAgeSeconds: 60 * 60 * 24 * 30
-              },
-              cacheableResponse: { statuses: [0, 200] }
-            }
-          },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
@@ -79,12 +69,26 @@ export default defineConfig({
             }
           },
           {
-            urlPattern: ({ request, url }) => request.destination === 'image' && url.pathname.startsWith('/images/'),
+            urlPattern: ({ request, url }) => request.destination === 'image'
+              && (url.pathname.startsWith('/images/') || url.pathname.startsWith('/icons/')),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'lesson-images-cache',
+              cacheName: 'image-assets-cache',
               expiration: {
-                maxEntries: 20,
+                maxEntries: 40,
+                maxAgeSeconds: 60 * 60 * 24 * 60
+              },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          {
+            urlPattern: ({ request, url }) => url.origin === self.location.origin
+              && ['style', 'script', 'font', 'worker'].includes(request.destination),
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'app-shell-assets-cache',
+              expiration: {
+                maxEntries: 60,
                 maxAgeSeconds: 60 * 60 * 24 * 30
               },
               cacheableResponse: { statuses: [0, 200] }

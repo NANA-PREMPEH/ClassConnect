@@ -1,6 +1,6 @@
 # ClassConnect
 
-Offline-capable personalized learning for Basic 7 Computing in Ghana, with diagnostic assessment, adaptive lesson sequencing, AI tutoring, smart revision, adaptive quizzes, and a device-local teacher dashboard.
+Offline-capable personalized learning and assessment for Basic 7 Computing in Ghana, with diagnostic assessment, adaptive lesson sequencing, AI tutoring, smart revision, adaptive quizzes, AI-powered assessments, and a device-local teacher dashboard.
 
 ## Screenshots
 
@@ -15,7 +15,7 @@ Offline-capable personalized learning for Basic 7 Computing in Ghana, with diagn
 
 ## Overview
 
-ClassConnect is built for low-connectivity classrooms. Students can begin with a diagnostic assessment, follow a personalized lesson path, chat with an AI tutor, complete adaptive quizzes, and review explanations on the same device. Teachers use a PIN-protected dashboard to inspect progress, common misconceptions, diagnostic coverage, and learner risk levels.
+ClassConnect is built for low-connectivity classrooms. Students can begin with a diagnostic assessment, follow a personalized lesson path, chat with an AI tutor, complete adaptive quizzes, take secure mixed-format assessments, and review explanations on the same device. Teachers use a PIN-protected dashboard to inspect progress, common misconceptions, diagnostic coverage, learner risk levels, and assessment quality data.
 
 The project is aligned to the GES Common Core Programme strand **Introduction to Computer Systems** for **Basic 7 Computing**.
 
@@ -37,6 +37,25 @@ This implementation now covers the core LMS personalization areas:
    A smart revision queue prioritizes which lessons to revisit next based on gaps and recent missed questions.
 7. **Zero-backend deployment**
    Student records, diagnostic history, tutor memory, quiz results, settings, and teacher access all live in IndexedDB and browser storage on the device.
+8. **Live feedback cache + misconception memory**
+   Wrong-answer explanations are generated live when possible, then saved locally so exact or common explanations can still be reused offline later.
+
+## Assessment Platform
+
+ClassConnect now also includes an AI-powered assessment workflow:
+
+1. **AI question generator**
+   Teachers can generate multiple-choice, short answer, and coding questions from selected lesson objectives.
+2. **Intelligent grading**
+   Open-ended responses are graded with rubric alignment using Gemini when available, with local fallback scoring when offline.
+3. **Plagiarism / AI detection**
+   Each submission gets a writing-style integrity review using lexical diversity, internal similarity, historical overlap, and a perplexity-style proxy.
+4. **Browser-based proctoring**
+   Secure assessment mode logs fullscreen exits, tab switches, blur events, shortcut attempts, and suspicious burst typing.
+5. **Item analysis**
+   Every assessment computes difficulty and discrimination values per item after submissions are collected.
+6. **Advanced feature: auto remediation plan**
+   Students receive targeted next-step remediation tasks based on the weakest assessed objectives.
 
 ## Curriculum Scope
 
@@ -62,28 +81,28 @@ Each lesson includes:
 ```text
                      ClassConnect (Vite PWA)
 
- Home / Login / Diagnostic / Lessons / Tutor / Quiz / Results / Dashboard
-                |             |         |        |        |         |
-                |             |         |        |        |         +--> Chart.js analytics + risk insights
+ Home / Login / Diagnostic / Lessons / Tutor / Quiz / Dashboard / Assessment Lab
+                |             |         |        |        |           |
+                |             |         |        |        |           +--> Question generation + item analysis
                 |             |         |        |        |
-                |             |         |        |        +--> Adaptive quiz engine (3PL IRT)
+                |             |         |        |        +--> Chart.js analytics + risk insights
                 |             |         |        |
-                |             |         |        +--> AI tutor + memory + study guidance
+                |             |         |        +--> Adaptive quiz engine (3PL IRT)
                 |             |         |
-                |             |         +--> Adaptive sequencing + smart revision queue
+                |             |         +--> AI tutor + memory + study guidance
                 |             |
                 |             +--> Knowledge-gap profile
                 |
-                +--> Lesson data + generated illustrations
+                +--> Assessment Center / Proctored Session / Results
 
                  IndexedDB + localStorage/sessionStorage
-students | progress | diagnostics | tutorThreads | quizResults | settings | sessions
+students | progress | diagnostics | tutorThreads | quizzes | assessments | assessmentSubmissions | settings | sessions
 
                      Service Worker (vite-plugin-pwa)
               precache shell/assets + runtime cache for lesson media
 
                      Online-only optional Gemini API
-         quiz explanations | diagnostic coaching | tutor responses
+ quiz explanations | diagnostic coaching | tutor responses | question generation | grading
 ```
 
 ## Tech Stack
@@ -131,8 +150,10 @@ Saved quiz results include:
 When a student misses a question:
 
 1. the app checks for a saved Gemini API key
-2. if online, it sends a short prompt asking for a warm 2-3 sentence explanation
-3. if offline or the API fails, it falls back to a local explanation from `src/data/fallback-hints.js`
+2. the quiz view immediately sends the question, the student's answer, and the correct answer to Gemini for a warm 2-3 sentence explanation
+3. successful responses are saved in IndexedDB for offline reuse on the same device
+4. if the exact saved response is unavailable, the app can reuse a common saved explanation for that question as a misconception-memory fallback
+5. if offline or the API fails and no saved match exists, it falls back to a local explanation from `src/data/fallback-hints.js`
 
 This keeps feedback available even on unstable school networks.
 
@@ -148,6 +169,22 @@ The new LMS layer adds four student-facing systems:
    A tutor chat uses the student's diagnostic, quiz history, and saved conversation thread to provide contextual support.
 4. **Risk-aware analytics**
    The dashboard combines completion, diagnostic evidence, and quiz performance to predict which learners need help first.
+
+## Assessment Workflow
+
+Teacher flow:
+
+1. Open **Assessment Lab** from the dashboard.
+2. Select lesson coverage and question counts.
+3. Generate and publish the assessment blueprint.
+4. Review item analysis, flagged integrity cases, and proctor alerts after submissions come in.
+
+Student flow:
+
+1. Open **Assessment Center** from the learning hub.
+2. Start a secure assessment session.
+3. Submit answers for rubric grading and integrity review.
+4. Review feedback, proctor summary, and the auto remediation plan.
 
 ## Teacher Workflow
 
@@ -172,6 +209,7 @@ The dashboard currently supports:
 - horizontal misconception chart
 - intervention queue
 - class mastery snapshot
+- published assessment count
 - lessons completed in the roster
 - CSV export
 - per-student drill-down with quiz history, theta trajectory, readiness, risk, and per-question performance
@@ -187,20 +225,25 @@ What works offline:
 - stored screenshots and illustrations
 - lesson completion tracking
 - adaptive quizzes
+- local assessment generation fallback
+- rubric-based fallback grading
 - AI tutor fallback responses
+- saved AI quiz feedback explanations and common question-level reuse
 - local results review
+- dashboard analytics, including charts, from the local bundled chart library
 - dashboard analytics for the data already on the device
 
 What needs connectivity:
 
 - first-time asset download
-- Gemini explanation, tutor, and coaching requests
+- Gemini explanation, tutor, coaching, question generation, and grading requests
 
 Workbox configuration now includes:
 
 - static asset precache
+- SPA app-shell navigation fallback to `index.html`
 - lesson image cache
-- Chart.js CDN cache
+- app-shell runtime cache for local scripts, styles, fonts, and workers
 - Google Fonts cache
 - Gemini runtime strategy configuration
 
@@ -242,11 +285,20 @@ src/
     adaptive-quiz.js
     ai-feedback.js
     ai-tutor.js
+    assessment-generator.js
+    assessment-grading.js
     diagnostic.js
+    item-analysis.js
     personalization.js
+    proctoring.js
     storage.js
+    submission-analysis.js
     theme.js
   views/
+    assessment-center.js
+    assessment-lab.js
+    assessment-results.js
+    assessment-session.js
     diagnostic.js
     diagnostic-results.js
     home.js
@@ -258,6 +310,7 @@ src/
     tutor.js
     dashboard.js
   styles/
+    assessment.css
     personalization.css
 ```
 
@@ -281,6 +334,8 @@ src/
 - Data is intentionally device-local. There is no backend sync yet.
 - Teacher authentication is device-scoped, not centrally managed.
 - Gemini explanations depend on a client-side API key and internet access.
+- The proctoring system is browser-based and cannot enforce full operating-system lockdown.
+- AI-detection is heuristic and should be treated as a review signal, not a final verdict.
 - The screenshot set currently focuses on entry flows; richer dashboard captures can be added later from a seeded demo dataset.
 
 ## License

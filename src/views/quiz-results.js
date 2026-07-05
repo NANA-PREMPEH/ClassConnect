@@ -5,6 +5,7 @@
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
 import { renderScoreRing } from '../components/ui.js';
+import { renderFeedbackCard } from '../components/feedback-card.js';
 import {
   getAllQuizResults,
   getCurrentStudent,
@@ -166,16 +167,13 @@ function renderReviewItem(response, feedback) {
   if (feedback) {
     if (!response.correct) {
       feedbackHtml = `
-        <div style="margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid rgba(148, 163, 184, 0.1);">
-          <div style="font-size: var(--font-size-xs); color: var(--color-accent-300); margin-bottom: var(--space-1); font-weight: var(--font-weight-bold);">
-            ${feedback.source === 'ai' ? 'AI Explanation' : 'Explanation'}
-          </div>
-          <div style="font-size: var(--font-size-sm); color: var(--text-secondary); line-height: 1.4;">${feedback.text}</div>
+        <div class="review-item__feedback">
+          ${renderFeedbackCard(feedback, false)}
         </div>
       `;
     }
   } else if (!response.correct) {
-    feedbackHtml = '<div class="shimmer" style="height: 40px; margin-top: var(--space-3);"></div>';
+    feedbackHtml = '<div class="shimmer" style="height: 116px; margin-top: var(--space-3);"></div>';
   }
 
   return `

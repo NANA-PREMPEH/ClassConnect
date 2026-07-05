@@ -9,6 +9,8 @@ import { showModal, showToast } from '../components/ui.js';
 import {
   clearTeacherAuthenticated,
   downloadCSV,
+  getAllAssessments,
+  getAllAssessmentSubmissions,
   getAllDiagnostics,
   exportAllDataAsCSV,
   getAllProgress,
@@ -21,9 +23,11 @@ import {
 } from '../engine/storage.js';
 import { lessons } from '../data/lessons.js';
 import { buildStudentProfile } from '../engine/personalization.js';
+import { ensureChartJS } from '../engine/chart-loader.js';
 
 let dashboardSnapshot = null;
 let dashboardCharts = [];
+let studentDetailChart = null;
 
 function formatDuration(ms = 0) {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -173,6 +177,8 @@ export async function renderDashboard() {
   const results = await getAllQuizResults();
   const progressRecords = await getAllProgress();
   const diagnostics = await getAllDiagnostics();
+  const assessments = await getAllAssessments();
+  const assessmentSubmissions = await getAllAssessmentSubmissions();
   dashboardSnapshot = buildDashboardSnapshot(students, results, progressRecords, diagnostics);
 
   if (students.length === 0) {
@@ -204,6 +210,7 @@ export async function renderDashboard() {
         ${renderStatCard('Progress', `${summary.completionRate}%`, 'Completion Rate', 'success', `${dashboardSnapshot.progressRecords.length} lesson completions logged`)}
         ${renderStatCard('Support', summary.studentsAtRisk, 'High Risk Learners', summary.studentsAtRisk > 0 ? 'danger' : 'success', 'Prediction score 60+')}
         ${renderStatCard('Diagnostic', `${summary.diagnosticCoverage}%`, 'Diagnostic Coverage', summary.diagnosticCoverage < 100 ? 'accent' : 'success', 'Students with readiness profiles')}
+        ${renderStatCard('Assess', assessments.length, 'Published Assessments', assessments.length > 0 ? 'primary' : 'accent', `${assessmentSubmissions.length} assessment submissions logged`)}
       </div>
 
       <div class="charts-section">
@@ -273,6 +280,7 @@ export async function renderDashboard() {
             <p class="dashboard-header__subtitle">Tap a student row to open quiz history, risk signals, diagnostic summary, and per-question performance.</p>
           </div>
           <div class="export-area" style="margin-top: 0;">
+            <button class="btn btn--primary btn--sm" id="btn-open-assessment-lab">Assessment Lab</button>
             <button class="btn btn--ghost btn--sm" id="btn-export-csv">Export CSV</button>
           </div>
         </div>
@@ -330,6 +338,7 @@ export function bindDashboardEvents(navigate) {
   });
 
   const exportBtn = document.getElementById('btn-export-csv');
+  const assessmentLabBtn = document.getElementById('btn-open-assessment-lab');
   if (exportBtn) {
     exportBtn.addEventListener('click', async () => {
       const csv = await exportAllDataAsCSV();
@@ -338,14 +347,13 @@ export function bindDashboardEvents(navigate) {
     });
   }
 
-  if (window.Chart) {
-    renderCharts();
-  } else {
-    const script = document.getElementById('chartjs-script');
-    if (script) {
-      script.addEventListener('load', renderCharts, { once: true });
-    }
+  if (assessmentLabBtn) {
+    assessmentLabBtn.addEventListener('click', () => {
+      navigate('/assessment-lab');
+    });
   }
+
+  void renderCharts();
 
   document.querySelectorAll('.student-row').forEach((row) => {
     row.addEventListener('click', (event) => {
@@ -541,8 +549,10 @@ async function showStudentDetailModal(studentId) {
 
   showModal('Student Profile', html, [{ label: 'Close', variant: 'btn--ghost' }], { modalClass: 'modal--wide' });
 
-  if (window.Chart && studentResults.length > 0) {
-    setTimeout(() => renderStudentThetaChart(studentResults), 0);
+  if (studentResults.length > 0) {
+    setTimeout(() => {
+      void renderStudentThetaChart(studentResults);
+    }, 0);
   }
 }
 
@@ -551,11 +561,11 @@ function destroyCharts() {
   dashboardCharts = [];
 }
 
-function renderCharts() {
-  if (!window.Chart || !dashboardSnapshot) return;
+async function renderCharts() {
+  if (!dashboardSnapshot) return;
   destroyCharts();
 
-  const { Chart } = window;
+  const Chart = await ensureChartJS();
   Chart.defaults.color = '#94A3B8';
   Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.1)';
 
@@ -649,15 +659,20 @@ function renderCharts() {
   }
 }
 
-function renderStudentThetaChart(studentResults) {
+async function renderStudentThetaChart(studentResults) {
   const canvas = document.getElementById('student-theta-chart');
-  if (!canvas || !window.Chart) return;
+  if (!canvas) return;
 
-  const { Chart } = window;
+  const Chart = await ensureChartJS();
+  if (studentDetailChart) {
+    studentDetailChart.destroy();
+    studentDetailChart = null;
+  }
+
   const labels = studentResults.map((result) => `L${result.lessonId}`);
   const thetaValues = studentResults.map((result) => result.theta);
 
-  new Chart(canvas, {
+  studentDetailChart = new Chart(canvas, {
     type: 'line',
     data: {
       labels,

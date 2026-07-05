@@ -48,6 +48,7 @@ function renderLearningHub(profile, hasDiagnostic) {
 
       <div class="learning-hub__actions">
         <button class="btn btn--primary" id="btn-open-path">Start Recommended Lesson</button>
+        <button class="btn btn--accent" id="btn-open-assessments">Assessment Center</button>
         <button class="btn btn--accent" id="btn-open-tutor">Ask AI Tutor</button>
         <button class="btn btn--ghost" id="btn-open-diagnostic">${hasDiagnostic ? 'Retake Diagnostic' : 'Take Diagnostic'}</button>
       </div>
@@ -186,6 +187,11 @@ export function bindLessonListEvents(navigate) {
   const openTutorBtn = document.getElementById('btn-open-tutor');
   if (openTutorBtn) {
     openTutorBtn.addEventListener('click', () => navigate('/tutor'));
+  }
+
+  const openAssessmentsBtn = document.getElementById('btn-open-assessments');
+  if (openAssessmentsBtn) {
+    openAssessmentsBtn.addEventListener('click', () => navigate('/assessments'));
   }
 
   const openDiagnosticBtn = document.getElementById('btn-open-diagnostic');

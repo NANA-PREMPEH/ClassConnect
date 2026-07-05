@@ -6,8 +6,9 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'classconnect';
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 const SETTINGS_STORE = 'settings';
+const FEEDBACK_CACHE_STORE = 'feedbackCache';
 const TEACHER_SESSION_KEY = 'cc_teacherAuthenticated';
 const CURRENT_STUDENT_KEY = 'cc_currentStudent';
 const LEGACY_SETTING_KEYS = ['apiKey', 'teacherPin', 'theme'];
@@ -38,6 +39,23 @@ function ensureBaseStores(db) {
 
   if (!db.objectStoreNames.contains('tutorThreads')) {
     db.createObjectStore('tutorThreads', { keyPath: 'studentId' });
+  }
+
+  if (!db.objectStoreNames.contains('assessments')) {
+    const assessmentStore = db.createObjectStore('assessments', { keyPath: 'id', autoIncrement: true });
+    assessmentStore.createIndex('createdAt', 'createdAt', { unique: false });
+  }
+
+  if (!db.objectStoreNames.contains('assessmentSubmissions')) {
+    const submissionStore = db.createObjectStore('assessmentSubmissions', { keyPath: 'id', autoIncrement: true });
+    submissionStore.createIndex('assessmentId', 'assessmentId', { unique: false });
+    submissionStore.createIndex('studentId', 'studentId', { unique: false });
+  }
+
+  if (!db.objectStoreNames.contains(FEEDBACK_CACHE_STORE)) {
+    const feedbackStore = db.createObjectStore(FEEDBACK_CACHE_STORE, { keyPath: 'cacheKey' });
+    feedbackStore.createIndex('questionId', 'questionId', { unique: false });
+    feedbackStore.createIndex('updatedAt', 'updatedAt', { unique: false });
   }
 
   if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
@@ -319,6 +337,101 @@ export async function saveTutorThread(studentId, messages) {
 export async function clearTutorThread(studentId) {
   const db = await getDB();
   await db.delete('tutorThreads', studentId);
+}
+
+// ==================== ASSESSMENTS ====================
+
+export async function saveAssessment(assessment) {
+  const db = await getDB();
+  const payload = {
+    ...assessment,
+    createdAt: assessment.createdAt || new Date().toISOString()
+  };
+  const id = await db.add('assessments', payload);
+  return { ...payload, id };
+}
+
+export async function getAssessment(id) {
+  const db = await getDB();
+  return db.get('assessments', id);
+}
+
+export async function getAllAssessments() {
+  const db = await getDB();
+  return db.getAll('assessments');
+}
+
+export async function saveAssessmentSubmission(submission) {
+  const db = await getDB();
+  const payload = {
+    ...submission,
+    completedAt: submission.completedAt || new Date().toISOString()
+  };
+  const id = await db.add('assessmentSubmissions', payload);
+  return { ...payload, id };
+}
+
+export async function getAssessmentSubmissionsForAssessment(assessmentId) {
+  const db = await getDB();
+  return db.getAllFromIndex('assessmentSubmissions', 'assessmentId', assessmentId);
+}
+
+export async function getAssessmentSubmissionsForStudent(studentId) {
+  const db = await getDB();
+  return db.getAllFromIndex('assessmentSubmissions', 'studentId', studentId);
+}
+
+export async function getAllAssessmentSubmissions() {
+  const db = await getDB();
+  return db.getAll('assessmentSubmissions');
+}
+
+// ==================== FEEDBACK CACHE ====================
+
+export async function getFeedbackCacheEntry(cacheKey) {
+  const db = await getDB();
+  return db.get(FEEDBACK_CACHE_STORE, cacheKey);
+}
+
+export async function getQuestionFeedbackCache(questionId) {
+  const db = await getDB();
+  return db.getAllFromIndex(FEEDBACK_CACHE_STORE, 'questionId', questionId);
+}
+
+export async function saveFeedbackCacheEntry(entry) {
+  const db = await getDB();
+  const existing = await db.get(FEEDBACK_CACHE_STORE, entry.cacheKey);
+  const now = new Date().toISOString();
+
+  const payload = {
+    ...existing,
+    ...entry,
+    createdAt: existing?.createdAt || entry.createdAt || now,
+    updatedAt: now,
+    usageCount: entry.usageCount || (existing ? (existing.usageCount || 0) + 1 : 1),
+    lastUsedAt: entry.lastUsedAt || now
+  };
+
+  await db.put(FEEDBACK_CACHE_STORE, payload);
+  return payload;
+}
+
+export async function markFeedbackCacheUsed(cacheKey) {
+  const db = await getDB();
+  const existing = await db.get(FEEDBACK_CACHE_STORE, cacheKey);
+
+  if (!existing) {
+    return null;
+  }
+
+  const payload = {
+    ...existing,
+    usageCount: (existing.usageCount || 0) + 1,
+    lastUsedAt: new Date().toISOString()
+  };
+
+  await db.put(FEEDBACK_CACHE_STORE, payload);
+  return payload;
 }
 
 // ==================== SESSION ====================

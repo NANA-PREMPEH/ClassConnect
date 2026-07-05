@@ -1,6 +1,6 @@
 /**
- * ClassConnect — Quiz View
- * Runs the adaptive quiz engine and records timing per question.
+ * ClassConnect - Quiz View
+ * Runs the adaptive quiz engine, records timing per question, and streams live AI feedback.
  */
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
@@ -17,6 +17,7 @@ let currentQuestionData = null;
 let currentFeedback = null;
 let isProcessingAnswer = false;
 let questionTimerId = null;
+let feedbackRequestSerial = 0;
 
 function formatDuration(ms = 0) {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -42,6 +43,83 @@ function startQuestionTimer() {
   stopQuestionTimer();
   updateQuestionTimer();
   questionTimerId = window.setInterval(updateQuestionTimer, 1000);
+}
+
+function getFeedbackCardData(feedbackState) {
+  return {
+    source: feedbackState.source,
+    text: feedbackState.aiText,
+    practiceTip: feedbackState.practiceTip,
+    usageCount: feedbackState.usageCount,
+    reusedFromQuestionBank: feedbackState.reusedFromQuestionBank
+  };
+}
+
+function getFeedbackStatusText(feedbackState) {
+  if (feedbackState.correct) {
+    return 'Instant success feedback is ready.';
+  }
+
+  if (feedbackState.feedbackLoading) {
+    return navigator.onLine
+      ? 'Generating a simple AI explanation and saving it for offline use...'
+      : 'You are offline. Looking for a saved explanation on this device...';
+  }
+
+  if (feedbackState.source === 'ai') {
+    return 'Live AI feedback is ready and saved for offline reuse.';
+  }
+
+  if (feedbackState.source === 'cache') {
+    return 'Loaded from the saved feedback cache on this device.';
+  }
+
+  if (feedbackState.source === 'question-cache') {
+    return 'Using a common saved explanation for this question while offline.';
+  }
+
+  return 'Showing the built-in offline explanation.';
+}
+
+function applyFeedbackResult(feedback) {
+  if (!currentFeedback) {
+    return;
+  }
+
+  currentFeedback.aiText = feedback.text;
+  currentFeedback.source = feedback.source;
+  currentFeedback.practiceTip = feedback.practiceTip;
+  currentFeedback.usageCount = feedback.usageCount;
+  currentFeedback.reusedFromQuestionBank = feedback.reusedFromQuestionBank;
+  currentFeedback.feedbackLoading = false;
+
+  const container = document.getElementById('feedback-container');
+  if (container) {
+    container.innerHTML = renderFeedbackCard(getFeedbackCardData(currentFeedback), false);
+  }
+
+  const status = document.getElementById('feedback-status');
+  if (status) {
+    status.textContent = getFeedbackStatusText(currentFeedback);
+  }
+}
+
+function requestLiveFeedback(question, studentAnswerText, correctAnswerText) {
+  const requestId = `feedback-${++feedbackRequestSerial}`;
+
+  if (currentFeedback) {
+    currentFeedback.feedbackRequestId = requestId;
+  }
+
+  generateFeedback(question.id, question.stem, studentAnswerText, correctAnswerText, {
+    preferCached: false
+  }).then((feedback) => {
+    if (!currentFeedback || currentFeedback.feedbackRequestId !== requestId) {
+      return;
+    }
+
+    applyFeedbackResult(feedback);
+  });
 }
 
 export function initQuizSession(lessonId) {
@@ -80,6 +158,10 @@ export function renderQuiz() {
   let content = '';
 
   if (currentFeedback) {
+    const feedbackCard = currentFeedback.aiText
+      ? renderFeedbackCard(getFeedbackCardData(currentFeedback), currentFeedback.correct)
+      : '<div class="shimmer" style="height: 116px; width: 100%;"></div>';
+
     content = `
       <div class="question-card">
         <div class="quiz-review-meta">
@@ -104,11 +186,9 @@ export function renderQuiz() {
           </div>
         </div>
 
-        <div style="margin-top: var(--space-6);" id="feedback-container">
-          ${currentFeedback.aiText
-            ? renderFeedbackCard({ source: currentFeedback.source, text: currentFeedback.aiText }, currentFeedback.correct)
-            : '<div class="shimmer" style="height: 100px; width: 100%;"></div>'
-          }
+        <div class="feedback-status" id="feedback-status">${getFeedbackStatusText(currentFeedback)}</div>
+        <div style="margin-top: var(--space-4);" id="feedback-container">
+          ${feedbackCard}
         </div>
 
         <div style="margin-top: var(--space-8); text-align: right;">
@@ -172,23 +252,6 @@ export function bindQuizEvents(navigate, renderCurrentView, lessonId) {
       });
     }
 
-    if (!currentFeedback.aiText && !currentFeedback.correct) {
-      generateFeedback(
-        currentFeedback.questionId,
-        currentFeedback.stem,
-        currentFeedback.studentAnswerText,
-        currentFeedback.correctAnswerText
-      ).then((feedback) => {
-        currentFeedback.aiText = feedback.text;
-        currentFeedback.source = feedback.source;
-
-        const container = document.getElementById('feedback-container');
-        if (container) {
-          container.innerHTML = renderFeedbackCard({ source: feedback.source, text: feedback.text }, false);
-        }
-      });
-    }
-
     return;
   }
 
@@ -230,12 +293,21 @@ function handleAnswerSelection(selectedIndex, selectedBtn, renderCurrentView) {
     correct: result.correct,
     studentAnswerText: question.options[selectedIndex],
     correctAnswerText: question.options[result.correctIndex],
-    aiText: result.correct ? 'Great work — you understood this concept.' : null,
+    aiText: result.correct ? 'Great work - you understood this concept.' : null,
     source: result.correct ? 'system' : null,
+    practiceTip: result.correct ? 'Keep building on that idea in the next question.' : null,
+    usageCount: 0,
+    reusedFromQuestionBank: false,
+    feedbackLoading: !result.correct,
+    feedbackRequestId: null,
     elapsedMs: result.elapsedMs,
     thetaAfter: result.thetaAfter,
     levelLabel: result.level.label
   };
+
+  if (!result.correct) {
+    requestLiveFeedback(question, currentFeedback.studentAnswerText, currentFeedback.correctAnswerText);
+  }
 
   setTimeout(() => {
     isProcessingAnswer = false;

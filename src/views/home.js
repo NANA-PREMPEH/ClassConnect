@@ -14,7 +14,7 @@ export function renderHome() {
           Welcome to ClassConnect
         </h1>
         <p style="color: var(--text-secondary); font-size: var(--font-size-lg);">
-          Learn Computing with diagnostics, adaptive paths, an AI tutor, and live progress tracking.
+          Learn Computing with diagnostics, adaptive paths, AI tutoring, and secure AI-powered assessments.
         </p>
       </div>
 
@@ -22,13 +22,13 @@ export function renderHome() {
         <button class="card card--glass card--interactive card--glow" id="btn-student" style="text-align: left; padding: var(--space-8);">
           <div style="font-size: 3rem; margin-bottom: var(--space-4);">Student</div>
           <h2 style="font-size: var(--font-size-2xl); margin-bottom: var(--space-2); color: var(--color-primary-300);">I am a Student</h2>
-          <p style="color: var(--text-secondary);">Start with a diagnostic, follow a personalized lesson path, and ask the AI tutor for help.</p>
+          <p style="color: var(--text-secondary);">Start with a diagnostic, follow a personalized lesson path, ask the AI tutor for help, and take secure assessments.</p>
         </button>
 
         <button class="card card--glass card--interactive card--glow" id="btn-teacher" style="text-align: left; padding: var(--space-8);">
           <div style="font-size: 3rem; margin-bottom: var(--space-4);">Teacher</div>
           <h2 style="font-size: var(--font-size-2xl); margin-bottom: var(--space-2); color: var(--color-accent-300);">I am a Teacher</h2>
-          <p style="color: var(--text-secondary);">View risk predictions, misconceptions, diagnostic coverage, and intervention-ready analytics.</p>
+          <p style="color: var(--text-secondary);">View risk predictions, build assessments, analyze submissions, and monitor intervention-ready analytics.</p>
         </button>
       </div>
     </div>
