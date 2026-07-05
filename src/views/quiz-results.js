@@ -5,8 +5,14 @@
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
 import { renderScoreRing } from '../components/ui.js';
-import { getAllQuizResults, getCurrentStudent } from '../engine/storage.js';
+import {
+  getAllQuizResults,
+  getCurrentStudent,
+  getLatestDiagnosticForStudent,
+  getProgressForStudent
+} from '../engine/storage.js';
 import { generateAllFeedback } from '../engine/ai-feedback.js';
+import { buildStudentProfile } from '../engine/personalization.js';
 
 function formatDuration(ms = 0) {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -23,6 +29,15 @@ export async function renderQuizResults(resultId) {
   if (!result) {
     return '<div class="container">Result not found.</div>';
   }
+
+  const studentResults = student ? allResults.filter((entry) => entry.studentId === student.id) : [];
+  const diagnostic = student ? await getLatestDiagnosticForStudent(student.id) : null;
+  const progressRecords = student ? await getProgressForStudent(student.id) : [];
+  const profile = buildStudentProfile({
+    diagnostic,
+    results: studentResults,
+    progressRecords
+  });
 
   return `
     ${renderNav({ title: 'Quiz Results', showBack: true, studentName: student?.name, backLabel: 'Back to Lessons' })}
@@ -56,6 +71,16 @@ export async function renderQuizResults(resultId) {
         </div>
       </div>
 
+      <div class="card card--glass results-next-step">
+        <div class="results-next-step__eyebrow">Adaptive content path</div>
+        <h3 class="results-next-step__title">Recommended next: ${profile.recommendedNext?.title || 'Return to lessons'}</h3>
+        <p class="results-next-step__text">${profile.recommendedNext?.recommendedFocus || 'Keep following your personalized path.'}</p>
+        <div class="results-next-step__chips">
+          <span class="badge badge--${profile.risk.badge}">Risk: ${profile.risk.label}</span>
+          <span class="badge badge--neutral">${profile.revisionQueue[0]?.title || 'Revision queue updated'}</span>
+        </div>
+      </div>
+
       <div class="results-review">
         <h3 class="results-review__title">Question Review</h3>
         <div id="review-list">
@@ -65,7 +90,8 @@ export async function renderQuizResults(resultId) {
       </div>
 
       <div class="quiz-results__actions">
-        <button class="btn btn--primary btn--lg" id="btn-next-lesson">Continue to Next Lesson</button>
+        <button class="btn btn--primary btn--lg" id="btn-next-lesson">Continue Personalized Path</button>
+        <button class="btn btn--accent" id="btn-open-tutor">Ask AI Tutor</button>
         <button class="btn btn--ghost" id="btn-retry-quiz">Retry Quiz</button>
       </div>
     </div>
@@ -76,16 +102,33 @@ export function bindQuizResultsEvents(navigate, resultId) {
   bindNavEvents({ onBack: () => navigate('/lessons') });
 
   const nextBtn = document.getElementById('btn-next-lesson');
+  const tutorBtn = document.getElementById('btn-open-tutor');
   const retryBtn = document.getElementById('btn-retry-quiz');
 
-  getAllQuizResults().then((results) => {
+  getAllQuizResults().then(async (results) => {
     const result = results.find((entry) => entry.id === Number.parseInt(resultId, 10));
     if (!result) return;
 
+    const student = getCurrentStudent();
+    const studentResults = student ? results.filter((entry) => entry.studentId === student.id) : [];
+    const diagnostic = student ? await getLatestDiagnosticForStudent(student.id) : null;
+    const progressRecords = student ? await getProgressForStudent(student.id) : [];
+    const profile = buildStudentProfile({
+      diagnostic,
+      results: studentResults,
+      progressRecords
+    });
+
     if (nextBtn) {
       nextBtn.addEventListener('click', () => {
-        const nextId = result.lessonId + 1;
-        navigate(nextId <= 5 ? `/lesson/${nextId}` : '/lessons');
+        const nextId = profile.recommendedNext?.lessonId;
+        navigate(nextId ? `/lesson/${nextId}` : '/lessons');
+      });
+    }
+
+    if (tutorBtn) {
+      tutorBtn.addEventListener('click', () => {
+        navigate('/tutor');
       });
     }
 

@@ -4,7 +4,7 @@
  */
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
-import { createStudent, setCurrentStudent, getAllStudents } from '../engine/storage.js';
+import { createStudent, setCurrentStudent, getAllStudents, getLatestDiagnosticForStudent } from '../engine/storage.js';
 import { showToast } from '../components/ui.js';
 
 export async function renderStudentLogin() {
@@ -28,7 +28,7 @@ export async function renderStudentLogin() {
             <label for="student-pin">4-Digit PIN (Keep this secret!)</label>
             <input type="password" id="student-pin" class="input input--pin" placeholder="••••" required pattern="[0-9]{4}" maxlength="4" inputmode="numeric">
           </div>
-          <button type="submit" class="btn btn--primary btn--lg btn--full">Continue to Lessons</button>
+          <button type="submit" class="btn btn--primary btn--lg btn--full">Continue to Your Learning Path</button>
         </form>
 
         ${students.length > 0 ? `
@@ -71,7 +71,8 @@ export function bindStudentLoginEvents(navigate) {
       // Find or create
       const student = await createStudent(name, pin);
       setCurrentStudent(student);
-      navigate('/lessons');
+      const diagnostic = await getLatestDiagnosticForStudent(student.id);
+      navigate(diagnostic ? '/lessons' : '/diagnostic');
     } catch (err) {
       console.error(err);
       showToast('Login failed. Please try again.', 'error');

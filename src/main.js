@@ -8,6 +8,7 @@ import './styles/components.css';
 import './styles/lessons.css';
 import './styles/quiz.css';
 import './styles/dashboard.css';
+import './styles/personalization.css';
 
 import { renderHome, bindHomeEvents } from './views/home.js';
 import { renderStudentLogin, bindStudentLoginEvents } from './views/student-login.js';
@@ -16,6 +17,9 @@ import { renderLessonList, bindLessonListEvents, renderLessonDetail, bindLessonD
 import { renderQuiz, bindQuizEvents, ensureQuizSession, clearQuizSession } from './views/quiz.js';
 import { renderQuizResults, bindQuizResultsEvents } from './views/quiz-results.js';
 import { renderDashboard, bindDashboardEvents } from './views/dashboard.js';
+import { renderDiagnostic, bindDiagnosticEvents, ensureDiagnosticSession, clearDiagnosticSession } from './views/diagnostic.js';
+import { renderDiagnosticResults, bindDiagnosticResultsEvents } from './views/diagnostic-results.js';
+import { renderTutor, bindTutorEvents } from './views/tutor.js';
 import { getCurrentStudent, hydrateSettingsFromDB, isTeacherAuthenticated } from './engine/storage.js';
 import { initTheme } from './engine/theme.js';
 
@@ -47,9 +51,12 @@ window.addEventListener('popstate', () => {
 
 function requiresStudentAuth(path) {
   return path === '/lessons'
+    || path === '/diagnostic'
+    || path.startsWith('/diagnostic-results/')
     || path.startsWith('/lesson/')
     || path.startsWith('/quiz/')
-    || path.startsWith('/quiz-results/');
+    || path.startsWith('/quiz-results/')
+    || path === '/tutor';
 }
 
 async function renderRoute() {
@@ -77,6 +84,10 @@ async function renderRoute() {
     clearQuizSession();
   }
 
+  if (currentPath !== '/diagnostic') {
+    clearDiagnosticSession();
+  }
+
   if (appRoot.firstElementChild) {
     appRoot.firstElementChild.classList.add('view-exit');
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -97,6 +108,14 @@ async function renderRoute() {
   } else if (currentPath === '/lessons') {
     html = await renderLessonList();
     bindEvents = () => bindLessonListEvents(navigate);
+  } else if (currentPath === '/diagnostic') {
+    ensureDiagnosticSession();
+    html = renderDiagnostic();
+    bindEvents = () => bindDiagnosticEvents(navigate, renderRoute);
+  } else if (currentPath.startsWith('/diagnostic-results/')) {
+    const id = currentPath.split('/')[2];
+    html = await renderDiagnosticResults(id);
+    bindEvents = () => bindDiagnosticResultsEvents(navigate, id);
   } else if (currentPath.startsWith('/lesson/')) {
     const id = Number.parseInt(currentPath.split('/')[2], 10);
     html = await renderLessonDetail(id);
@@ -110,6 +129,9 @@ async function renderRoute() {
     const id = currentPath.split('/')[2];
     html = await renderQuizResults(id);
     bindEvents = () => bindQuizResultsEvents(navigate, id);
+  } else if (currentPath === '/tutor') {
+    html = await renderTutor();
+    bindEvents = () => bindTutorEvents(navigate, renderRoute);
   } else if (currentPath === '/dashboard') {
     html = await renderDashboard();
     bindEvents = () => bindDashboardEvents(navigate);

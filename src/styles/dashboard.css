@@ -90,6 +90,17 @@
   margin-bottom: var(--space-8);
 }
 
+.dashboard-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+}
+
+.dashboard-panel {
+  padding: var(--space-6);
+}
+
 .chart-card {
   padding: var(--space-6);
 }
@@ -320,6 +331,89 @@
   color: var(--text-muted);
 }
 
+.student-detail__snapshot {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.student-detail__snapshot-item {
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.student-detail__snapshot-text {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.intervention-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.intervention-item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.intervention-item__name {
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-1);
+}
+
+.intervention-item__meta,
+.intervention-item__action {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.intervention-item__action {
+  margin-top: var(--space-2);
+  max-width: 240px;
+}
+
+.mastery-grid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.mastery-grid__item {
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.mastery-grid__label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-1);
+}
+
+.mastery-grid__title {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.mastery-grid__value {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-extrabold);
+}
+
 /* --- Misconception List --- */
 .misconception-list {
   display: grid;
@@ -385,6 +479,10 @@
 
   .charts-section {
     grid-template-columns: 1fr;
+  }
+
+  .intervention-item {
+    flex-direction: column;
   }
 }
 

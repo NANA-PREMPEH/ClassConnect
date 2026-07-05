@@ -9,6 +9,7 @@ import { showModal, showToast } from '../components/ui.js';
 import {
   clearTeacherAuthenticated,
   downloadCSV,
+  getAllDiagnostics,
   exportAllDataAsCSV,
   getAllProgress,
   getAllQuizResults,
@@ -19,6 +20,7 @@ import {
   setTeacherPinAsync
 } from '../engine/storage.js';
 import { lessons } from '../data/lessons.js';
+import { buildStudentProfile } from '../engine/personalization.js';
 
 let dashboardSnapshot = null;
 let dashboardCharts = [];
@@ -42,15 +44,47 @@ function getLatestResults(results) {
   return Object.values(latestByStudent);
 }
 
-function buildDashboardSnapshot(students, results, progressRecords) {
+function buildDashboardSnapshot(students, results, progressRecords, diagnostics) {
   const latestResults = getLatestResults(results);
+  const latestDiagnosticsByStudent = {};
+  diagnostics
+    .slice()
+    .sort((left, right) => new Date(right.completedAt) - new Date(left.completedAt))
+    .forEach((diagnostic) => {
+      if (!latestDiagnosticsByStudent[diagnostic.studentId]) {
+        latestDiagnosticsByStudent[diagnostic.studentId] = diagnostic;
+      }
+    });
+
+  const studentProfiles = students.map((student) => {
+    const studentResults = results.filter((result) => result.studentId === student.id);
+    const studentProgress = progressRecords.filter((record) => record.studentId === student.id);
+    const diagnostic = latestDiagnosticsByStudent[student.id] || null;
+    const profile = buildStudentProfile({
+      diagnostic,
+      results: studentResults,
+      progressRecords: studentProgress
+    });
+
+    return {
+      student,
+      results: studentResults,
+      progressRecords: studentProgress,
+      diagnostic,
+      profile
+    };
+  });
+
   const completionRate = students.length > 0
     ? Math.round((progressRecords.length / (students.length * lessons.length)) * 100)
     : 0;
   const averageScore = latestResults.length > 0
     ? Math.round((latestResults.reduce((sum, result) => sum + (result.score / result.totalQuestions), 0) / latestResults.length) * 100)
     : 0;
-  const studentsAtRisk = latestResults.filter((result) => result.theta < -0.5).length;
+  const studentsAtRisk = studentProfiles.filter((entry) => entry.profile.risk.score >= 60).length;
+  const diagnosticCoverage = students.length > 0
+    ? Math.round((studentProfiles.filter((entry) => entry.diagnostic).length / students.length) * 100)
+    : 0;
 
   const scoresByLesson = {};
   const countsByLesson = {};
@@ -94,23 +128,43 @@ function buildDashboardSnapshot(students, results, progressRecords) {
     .sort((left, right) => right.count - left.count)
     .slice(0, 7);
 
+  const masterySnapshot = lessons.map((lesson) => {
+    const masteryScores = studentProfiles
+      .map((entry) => entry.profile.lessonProfiles.find((profile) => profile.lessonId === lesson.id)?.mastery || 0);
+    return {
+      lessonId: lesson.id,
+      title: lesson.title,
+      averageMastery: masteryScores.length ? Math.round((masteryScores.reduce((sum, value) => sum + value, 0) / masteryScores.length) * 100) : 0
+    };
+  });
+
+  const interventionQueue = studentProfiles
+    .filter((entry) => entry.profile.risk.score >= 35)
+    .sort((left, right) => right.profile.risk.score - left.profile.risk.score)
+    .slice(0, 6);
+
   return {
     students,
     results,
     progressRecords,
+    diagnostics,
+    studentProfiles,
     latestResults,
     summary: {
       totalStudents: students.length,
       averageScore,
       completionRate,
-      studentsAtRisk
+      studentsAtRisk,
+      diagnosticCoverage
     },
     charts: {
       lessonLabels: lessons.map((lesson) => `Lesson ${lesson.id}`),
       lessonScoreData,
       levelCounts,
       misconceptions
-    }
+    },
+    interventionQueue,
+    masterySnapshot
   };
 }
 
@@ -118,7 +172,8 @@ export async function renderDashboard() {
   const students = await getAllStudents();
   const results = await getAllQuizResults();
   const progressRecords = await getAllProgress();
-  dashboardSnapshot = buildDashboardSnapshot(students, results, progressRecords);
+  const diagnostics = await getAllDiagnostics();
+  dashboardSnapshot = buildDashboardSnapshot(students, results, progressRecords, diagnostics);
 
   if (students.length === 0) {
     return `
@@ -147,7 +202,8 @@ export async function renderDashboard() {
         ${renderStatCard('Students', summary.totalStudents, 'Total Students', 'primary', `${dashboardSnapshot.results.length} quizzes recorded`)}
         ${renderStatCard('Average', `${summary.averageScore}%`, 'Average Score', 'accent', 'Latest quiz per student')}
         ${renderStatCard('Progress', `${summary.completionRate}%`, 'Completion Rate', 'success', `${dashboardSnapshot.progressRecords.length} lesson completions logged`)}
-        ${renderStatCard('Support', summary.studentsAtRisk, 'Students At Risk', summary.studentsAtRisk > 0 ? 'danger' : 'success', 'Theta below -0.5')}
+        ${renderStatCard('Support', summary.studentsAtRisk, 'High Risk Learners', summary.studentsAtRisk > 0 ? 'danger' : 'success', 'Prediction score 60+')}
+        ${renderStatCard('Diagnostic', `${summary.diagnosticCoverage}%`, 'Diagnostic Coverage', summary.diagnosticCoverage < 100 ? 'accent' : 'success', 'Students with readiness profiles')}
       </div>
 
       <div class="charts-section">
@@ -175,11 +231,46 @@ export async function renderDashboard() {
         </div>
       </div>
 
+      <div class="dashboard-panels">
+        <div class="card dashboard-panel">
+          <h3 class="chart-card__title">Intervention Queue</h3>
+          <p class="chart-card__subtitle">Students who would benefit most from targeted teacher support right now.</p>
+          <div class="intervention-list">
+            ${dashboardSnapshot.interventionQueue.length > 0 ? dashboardSnapshot.interventionQueue.map((entry) => `
+              <div class="intervention-item">
+                <div>
+                  <div class="intervention-item__name">${entry.student.name}</div>
+                  <div class="intervention-item__meta">${entry.profile.risk.reasons.join(' | ')}</div>
+                </div>
+                <div style="text-align: right;">
+                  <div class="badge badge--${entry.profile.risk.badge}">Risk ${entry.profile.risk.score}</div>
+                  <div class="intervention-item__action">${entry.profile.risk.action}</div>
+                </div>
+              </div>
+            `).join('') : '<div class="insight-empty">No learners are currently flagged for intervention.</div>'}
+          </div>
+        </div>
+
+        <div class="card dashboard-panel">
+          <h3 class="chart-card__title">Class Mastery Snapshot</h3>
+          <p class="chart-card__subtitle">Average mastery by lesson after combining diagnostics, completion, and quiz performance.</p>
+          <div class="mastery-grid">
+            ${dashboardSnapshot.masterySnapshot.map((entry) => `
+              <div class="mastery-grid__item">
+                <div class="mastery-grid__label">Lesson ${entry.lessonId}</div>
+                <div class="mastery-grid__title">${entry.title}</div>
+                <div class="mastery-grid__value">${entry.averageMastery}%</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+
       <div class="student-section">
         <div class="student-section__header">
           <div>
             <h3 class="student-section__title">Student Roster</h3>
-            <p class="dashboard-header__subtitle">Tap a student row to open quiz history, theta trajectory, and per-question performance.</p>
+            <p class="dashboard-header__subtitle">Tap a student row to open quiz history, risk signals, diagnostic summary, and per-question performance.</p>
           </div>
           <div class="export-area" style="margin-top: 0;">
             <button class="btn btn--ghost btn--sm" id="btn-export-csv">Export CSV</button>
@@ -194,8 +285,8 @@ export async function renderDashboard() {
                 <th>Lessons Completed</th>
                 <th>Quizzes Taken</th>
                 <th>Latest Score</th>
-                <th>Latest Level</th>
-                <th>Status</th>
+                <th>Next Focus</th>
+                <th>Risk</th>
               </tr>
             </thead>
             <tbody>
@@ -205,21 +296,9 @@ export async function renderDashboard() {
                   .sort((left, right) => new Date(right.completedAt) - new Date(left.completedAt));
                 const latest = studentResults[0];
                 const lessonsCompleted = progressRecords.filter((record) => record.studentId === student.id).length;
-                let status = 'No Data';
-                let statusBadge = 'neutral';
-
-                if (latest) {
-                  if (latest.theta < -0.5) {
-                    status = 'At Risk';
-                    statusBadge = 'danger';
-                  } else if (latest.theta < 0.5) {
-                    status = 'Needs Help';
-                    statusBadge = 'warning';
-                  } else {
-                    status = 'On Track';
-                    statusBadge = 'success';
-                  }
-                }
+                const studentProfileEntry = dashboardSnapshot.studentProfiles.find((entry) => entry.student.id === student.id);
+                const risk = studentProfileEntry?.profile.risk;
+                const nextFocus = studentProfileEntry?.profile.recommendedNext?.title || '-';
 
                 return `
                   <tr class="student-row" data-id="${student.id}">
@@ -227,8 +306,8 @@ export async function renderDashboard() {
                     <td>${lessonsCompleted}/${lessons.length}</td>
                     <td>${studentResults.length}</td>
                     <td class="student-table__score">${latest ? `${Math.round((latest.score / latest.totalQuestions) * 100)}%` : '-'}</td>
-                    <td>${latest ? latest.level : '-'}</td>
-                    <td><span class="badge badge--${statusBadge}">${status}</span></td>
+                    <td>${nextFocus}</td>
+                    <td><span class="badge badge--${risk?.badge || 'neutral'}">${risk?.label || 'No Data'}</span></td>
                   </tr>
                 `;
               }).join('')}
@@ -283,7 +362,7 @@ function showSettingsModal() {
     <div class="input-group" style="margin-bottom: var(--space-4);">
       <label>Google Gemini API Key</label>
       <input type="password" id="settings-api-key" class="input" value="${currentKey}" placeholder="AIzaSy...">
-      <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-top: var(--space-2);">Required for personalized AI feedback. You can update this any time.</p>
+      <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-top: var(--space-2);">Used for quiz explanations, diagnostic coaching, and the AI tutor. You can update this any time.</p>
     </div>
     <div class="input-group">
       <label>Teacher PIN</label>
@@ -323,11 +402,20 @@ async function showStudentDetailModal(studentId) {
   const students = dashboardSnapshot?.students || await getAllStudents();
   const results = dashboardSnapshot?.results || await getAllQuizResults();
   const progressRecords = dashboardSnapshot?.progressRecords || await getAllProgress();
+  const diagnostics = dashboardSnapshot?.diagnostics || await getAllDiagnostics();
 
   const student = students.find((entry) => entry.id === studentId);
   const studentResults = results
     .filter((result) => result.studentId === studentId)
     .sort((left, right) => new Date(left.completedAt) - new Date(right.completedAt));
+  const latestDiagnostic = diagnostics
+    .filter((entry) => entry.studentId === studentId)
+    .sort((left, right) => new Date(right.completedAt) - new Date(left.completedAt))[0] || null;
+  const profile = buildStudentProfile({
+    diagnostic: latestDiagnostic,
+    results: studentResults,
+    progressRecords: progressRecords.filter((record) => record.studentId === studentId)
+  });
   const latest = studentResults.at(-1);
   const avgScore = studentResults.length > 0
     ? Math.round((studentResults.reduce((sum, result) => sum + (result.score / result.totalQuestions), 0) / studentResults.length) * 100)
@@ -370,6 +458,24 @@ async function showStudentDetailModal(studentId) {
         <div class="student-detail__stat">
           <div class="student-detail__stat-value">${latest ? formatDuration(latest.averageTimeMs) : '00:00'}</div>
           <div class="student-detail__stat-label">Avg Question Time</div>
+        </div>
+      </div>
+
+      <div class="student-detail__panel" style="margin-bottom: var(--space-4);">
+        <h4 class="student-detail__history-title">Personalization Snapshot</h4>
+        <div class="student-detail__snapshot">
+          <div class="student-detail__snapshot-item">
+            <span class="badge badge--${profile.readiness.tone}">${profile.readiness.label}</span>
+            <div class="student-detail__snapshot-text">${latestDiagnostic ? `Diagnostic completed on ${new Date(latestDiagnostic.completedAt).toLocaleDateString()}` : 'Diagnostic not completed yet.'}</div>
+          </div>
+          <div class="student-detail__snapshot-item">
+            <span class="badge badge--${profile.risk.badge}">Risk ${profile.risk.score}</span>
+            <div class="student-detail__snapshot-text">${profile.risk.action}</div>
+          </div>
+          <div class="student-detail__snapshot-item">
+            <span class="badge badge--primary">Next Focus</span>
+            <div class="student-detail__snapshot-text">${profile.recommendedNext?.title || 'Lesson 1'} - ${profile.recommendedNext?.recommendedFocus || 'Continue the learning path.'}</div>
+          </div>
         </div>
       </div>
 

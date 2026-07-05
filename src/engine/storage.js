@@ -6,7 +6,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'classconnect';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SETTINGS_STORE = 'settings';
 const TEACHER_SESSION_KEY = 'cc_teacherAuthenticated';
 const CURRENT_STUDENT_KEY = 'cc_currentStudent';
@@ -29,6 +29,15 @@ function ensureBaseStores(db) {
     const quizStore = db.createObjectStore('quizResults', { keyPath: 'id', autoIncrement: true });
     quizStore.createIndex('studentId', 'studentId', { unique: false });
     quizStore.createIndex('lessonId', 'lessonId', { unique: false });
+  }
+
+  if (!db.objectStoreNames.contains('diagnostics')) {
+    const diagnosticStore = db.createObjectStore('diagnostics', { keyPath: 'id', autoIncrement: true });
+    diagnosticStore.createIndex('studentId', 'studentId', { unique: false });
+  }
+
+  if (!db.objectStoreNames.contains('tutorThreads')) {
+    db.createObjectStore('tutorThreads', { keyPath: 'studentId' });
   }
 
   if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
@@ -252,6 +261,64 @@ export async function getAllQuizResults() {
 export async function getQuizResultsForLesson(lessonId) {
   const db = await getDB();
   return db.getAllFromIndex('quizResults', 'lessonId', lessonId);
+}
+
+// ==================== DIAGNOSTICS ====================
+
+export async function saveDiagnosticResult(result) {
+  const db = await getDB();
+  const completedAt = new Date().toISOString();
+  const payload = {
+    ...result,
+    completedAt
+  };
+  const id = await db.add('diagnostics', payload);
+  return { ...payload, id };
+}
+
+export async function getDiagnosticResult(id) {
+  const db = await getDB();
+  return db.get('diagnostics', id);
+}
+
+export async function getDiagnosticsForStudent(studentId) {
+  const db = await getDB();
+  return db.getAllFromIndex('diagnostics', 'studentId', studentId);
+}
+
+export async function getLatestDiagnosticForStudent(studentId) {
+  const diagnostics = await getDiagnosticsForStudent(studentId);
+  return diagnostics
+    .slice()
+    .sort((left, right) => new Date(right.completedAt) - new Date(left.completedAt))[0] || null;
+}
+
+export async function getAllDiagnostics() {
+  const db = await getDB();
+  return db.getAll('diagnostics');
+}
+
+// ==================== TUTOR MEMORY ====================
+
+export async function getTutorThread(studentId) {
+  const db = await getDB();
+  return db.get('tutorThreads', studentId);
+}
+
+export async function saveTutorThread(studentId, messages) {
+  const db = await getDB();
+  const payload = {
+    studentId,
+    messages: messages.slice(-20),
+    updatedAt: new Date().toISOString()
+  };
+  await db.put('tutorThreads', payload);
+  return payload;
+}
+
+export async function clearTutorThread(studentId) {
+  const db = await getDB();
+  await db.delete('tutorThreads', studentId);
 }
 
 // ==================== SESSION ====================
