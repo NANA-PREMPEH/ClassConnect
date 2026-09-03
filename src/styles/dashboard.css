@@ -12,6 +12,14 @@
   margin-bottom: var(--space-6);
 }
 
+.dashboard-header__top {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
 .dashboard-header__title {
   font-size: var(--font-size-2xl);
   font-weight: var(--font-weight-extrabold);
@@ -21,6 +29,54 @@
 .dashboard-header__subtitle {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
+}
+
+.dashboard-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dashboard-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-full);
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success-400);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.dashboard-live-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-success-400);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.dashboard-live-bar {
+  margin-top: var(--space-4);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+}
+
+.dashboard-live-bar__item {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-xl);
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
 }
 
 /* --- Stat Cards Grid --- */
@@ -99,6 +155,14 @@
 
 .dashboard-panel {
   padding: var(--space-6);
+}
+
+.dashboard-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .chart-card {
@@ -414,6 +478,46 @@
   font-weight: var(--font-weight-extrabold);
 }
 
+.activity-feed {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.activity-item {
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.activity-item__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.activity-item__time {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.activity-item__title {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-normal);
+}
+
+.activity-item__meta {
+  margin-top: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
 /* --- Misconception List --- */
 .misconception-list {
   display: grid;
@@ -479,6 +583,10 @@
 
   .charts-section {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-header__actions {
+    justify-content: flex-start;
   }
 
   .intervention-item {

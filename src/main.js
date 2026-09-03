@@ -17,7 +17,7 @@ import { renderTeacherLogin, bindTeacherLoginEvents } from './views/teacher-logi
 import { renderLessonList, bindLessonListEvents, renderLessonDetail, bindLessonDetailEvents } from './views/lesson-viewer.js';
 import { renderQuiz, bindQuizEvents, ensureQuizSession, clearQuizSession } from './views/quiz.js';
 import { renderQuizResults, bindQuizResultsEvents } from './views/quiz-results.js';
-import { renderDashboard, bindDashboardEvents } from './views/dashboard.js';
+import { renderDashboard, bindDashboardEvents, teardownDashboardLiveUpdates } from './views/dashboard.js';
 import { renderDiagnostic, bindDiagnosticEvents, ensureDiagnosticSession, clearDiagnosticSession } from './views/diagnostic.js';
 import { renderDiagnosticResults, bindDiagnosticResultsEvents } from './views/diagnostic-results.js';
 import { renderTutor, bindTutorEvents } from './views/tutor.js';
@@ -30,6 +30,24 @@ import { initTheme } from './engine/theme.js';
 
 let currentPath = window.location.pathname;
 const appRoot = document.getElementById('app');
+const SETTINGS_HYDRATION_TIMEOUT_MS = 4000;
+
+async function hydrateInitialSettings() {
+  let timeoutId;
+
+  try {
+    await Promise.race([
+      hydrateSettingsFromDB(),
+      new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          reject(new Error('Saved settings did not load in time.'));
+        }, SETTINGS_HYDRATION_TIMEOUT_MS);
+      })
+    ]);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 async function navigate(path, addToHistory = true) {
   if (addToHistory && path !== window.location.pathname) {
@@ -90,6 +108,10 @@ async function renderRoute() {
 
   if (!currentPath.startsWith('/assessment/')) {
     clearAssessmentSession();
+  }
+
+  if (currentPath !== '/dashboard') {
+    teardownDashboardLiveUpdates();
   }
 
   if (appRoot.firstElementChild) {
@@ -169,8 +191,16 @@ window.addEventListener('DOMContentLoaded', () => {
   const loaderDelayMs = params.has('capture') ? 0 : 1500;
 
   setTimeout(async () => {
-    await hydrateSettingsFromDB();
+    try {
+      await hydrateInitialSettings();
+    } catch (error) {
+      // A stale, blocked, or unavailable IndexedDB database must not leave the
+      // application permanently behind its loading screen. Local settings are
+      // optional at startup, so the app can safely continue without hydration.
+      console.error('Unable to load saved ClassConnect settings.', error);
+    }
+
     initTheme();
-    renderRoute();
+    await renderRoute();
   }, loaderDelayMs);
 });

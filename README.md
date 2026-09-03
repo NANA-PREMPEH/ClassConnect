@@ -32,7 +32,7 @@ This implementation now covers the core LMS personalization areas:
 4. **Adaptive assessment**
    The quiz engine uses a lightweight 3PL IRT model to estimate learner ability and choose the next most informative question.
 5. **Learning analytics dashboard**
-   Teachers get completion tracking, diagnostic coverage, risk prediction, misconception charts, intervention guidance, export, and student drill-downs.
+   Teachers get completion tracking, diagnostic coverage, risk prediction, misconception charts, intervention guidance, export, student drill-downs, and a live database-backed classroom activity view.
 6. **Advanced revision support**
    A smart revision queue prioritizes which lessons to revisit next based on gaps and recent missed questions.
 7. **Zero-backend deployment**
@@ -209,6 +209,8 @@ The dashboard currently supports:
 - horizontal misconception chart
 - intervention queue
 - class mastery snapshot
+- live activity feed from local database records
+- auto-refresh after local data changes plus manual refresh
 - published assessment count
 - lessons completed in the roster
 - CSV export

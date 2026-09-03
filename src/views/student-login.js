@@ -7,9 +7,7 @@ import { renderNav, bindNavEvents } from '../components/nav.js';
 import { createStudent, setCurrentStudent, getAllStudents, getLatestDiagnosticForStudent } from '../engine/storage.js';
 import { showToast } from '../components/ui.js';
 
-export async function renderStudentLogin() {
-  const students = await getAllStudents();
-
+export function renderStudentLogin() {
   return `
     ${renderNav({ title: 'ClassConnect', showBack: true })}
     <div class="container container--narrow view-enter" style="padding-top: var(--space-8); padding-bottom: var(--space-12);">
@@ -31,17 +29,11 @@ export async function renderStudentLogin() {
           <button type="submit" class="btn btn--primary btn--lg btn--full">Continue to Your Learning Path</button>
         </form>
 
-        ${students.length > 0 ? `
+        <div id="recent-students" hidden>
           <div class="divider"></div>
           <h3 style="font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: var(--space-4);">Recent Students</h3>
-          <div style="display: flex; flex-wrap: wrap; gap: var(--space-3);">
-            ${students.slice(0, 5).map(s => `
-              <button class="badge badge--neutral student-quick-select" data-name="${s.name}" style="padding: var(--space-2) var(--space-3); cursor: pointer; border: 1px solid var(--color-slate-600);">
-                ${s.name}
-              </button>
-            `).join('')}
-          </div>
-        ` : ''}
+          <div id="recent-student-list" style="display: flex; flex-wrap: wrap; gap: var(--space-3);"></div>
+        </div>
       </div>
     </div>
     <div class="bg-pattern"></div>
@@ -74,16 +66,53 @@ export function bindStudentLoginEvents(navigate) {
       const diagnostic = await getLatestDiagnosticForStudent(student.id);
       navigate(diagnostic ? '/lessons' : '/diagnostic');
     } catch (err) {
-      console.error(err);
-      showToast('Login failed. Please try again.', 'error');
+      console.error('[ClassConnect] Student login error:', err);
+      let message = 'Login failed. Please try again.';
+
+      if (err?.message === 'The local ClassConnect database is busy.') {
+        message = 'Your saved learning data is busy. Close other ClassConnect tabs, then try again.';
+      } else if (
+        err?.name === 'VersionError' ||
+        err?.message?.includes('version') ||
+        err?.message?.includes('blocked')
+      ) {
+        message = 'A database update is needed. Please close all other ClassConnect tabs and try again.';
+      }
+
+      showToast(message, 'error');
     }
   });
 
-  // Quick select
-  document.querySelectorAll('.student-quick-select').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      nameInput.value = e.target.dataset.name;
+  const recentStudents = document.getElementById('recent-students');
+  const recentStudentList = document.getElementById('recent-student-list');
+
+  recentStudentList.addEventListener('click', (event) => {
+    const button = event.target.closest('.student-quick-select');
+    if (button) {
+      nameInput.value = button.dataset.name;
       pinInput.focus();
-    });
+    }
   });
+
+  // Recent students are a convenience only. Do not delay the login form while
+  // the device database is opening or being upgraded.
+  void getAllStudents()
+    .then((students) => {
+      if (!students.length) return;
+
+      students.slice(0, 5).forEach((student) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'badge badge--neutral student-quick-select';
+        button.dataset.name = student.name;
+        button.style.cssText = 'padding: var(--space-2) var(--space-3); cursor: pointer; border: 1px solid var(--color-slate-600);';
+        button.textContent = student.name;
+        recentStudentList.append(button);
+      });
+
+      recentStudents.hidden = false;
+    })
+    .catch((error) => {
+      console.warn('Recent students could not be loaded.', error);
+    });
 }

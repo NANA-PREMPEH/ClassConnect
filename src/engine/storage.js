@@ -6,14 +6,84 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'classconnect';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const SETTINGS_STORE = 'settings';
 const FEEDBACK_CACHE_STORE = 'feedbackCache';
+const DATA_CHANGE_EVENT = 'classconnect:datachange';
+const DATA_SYNC_CHANNEL = 'classconnect-data-sync';
 const TEACHER_SESSION_KEY = 'cc_teacherAuthenticated';
 const CURRENT_STUDENT_KEY = 'cc_currentStudent';
 const LEGACY_SETTING_KEYS = ['apiKey', 'teacherPin', 'theme'];
 
 let dbPromise = null;
+let dataSyncChannel = null;
+const dataSyncClientId = globalThis.crypto?.randomUUID?.()
+  || `cc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+function getDataSyncChannel() {
+  if (typeof BroadcastChannel === 'undefined') {
+    return null;
+  }
+
+  if (!dataSyncChannel) {
+    dataSyncChannel = new BroadcastChannel(DATA_SYNC_CHANNEL);
+  }
+
+  return dataSyncChannel;
+}
+
+function emitDataChange(store, action, record = null) {
+  const payload = {
+    store,
+    action,
+    recordId: record?.id ?? record?.studentId ?? record?.cacheKey ?? null,
+    timestamp: new Date().toISOString(),
+    sourceId: dataSyncClientId
+  };
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(DATA_CHANGE_EVENT, { detail: payload }));
+  }
+
+  try {
+    getDataSyncChannel()?.postMessage(payload);
+  } catch {
+    // BroadcastChannel may be unavailable in restricted contexts.
+  }
+
+  return payload;
+}
+
+export function subscribeToDataChanges(listener) {
+  const handleWindowEvent = (event) => {
+    if (event?.detail) {
+      listener(event.detail);
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener(DATA_CHANGE_EVENT, handleWindowEvent);
+  }
+
+  const channel = getDataSyncChannel();
+  const handleChannelMessage = (event) => {
+    if (!event?.data || event.data.sourceId === dataSyncClientId) {
+      return;
+    }
+
+    listener(event.data);
+  };
+
+  channel?.addEventListener('message', handleChannelMessage);
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(DATA_CHANGE_EVENT, handleWindowEvent);
+    }
+
+    channel?.removeEventListener('message', handleChannelMessage);
+  };
+}
 
 function ensureBaseStores(db) {
   if (!db.objectStoreNames.contains('students')) {
@@ -68,7 +138,28 @@ function getDB() {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
       upgrade(db) {
         ensureBaseStores(db);
+      },
+      blocked(currentVersion, blockedVersion, event) {
+        console.warn(
+          `[ClassConnect] IndexedDB upgrade blocked (v${currentVersion} → v${blockedVersion}). ` +
+          'Close other ClassConnect tabs or clear site data, then try again.'
+        );
+      },
+      blocking(currentVersion, blockedVersion, event) {
+        // Another tab is trying to upgrade the DB — close our connection so
+        // the upgrade can proceed without the user manually closing this tab.
+        event.target.close();
+        dbPromise = null;
+      },
+      terminated() {
+        // The browser abnormally closed the connection (e.g. storage pressure).
+        dbPromise = null;
       }
+    }).catch((err) => {
+      // Reset the cached promise so the next call can retry instead of
+      // permanently returning the rejected promise.
+      dbPromise = null;
+      throw err;
     });
   }
 
@@ -199,7 +290,9 @@ export async function createStudent(name, pin) {
     createdAt
   });
 
-  return { id, name: name.trim(), pin, createdAt };
+  const created = { id, name: name.trim(), pin, createdAt };
+  emitDataChange('students', 'create', created);
+  return created;
 }
 
 export async function findStudentByNameAndPin(name, pin) {
@@ -233,7 +326,9 @@ export async function markLessonComplete(studentId, lessonId) {
     completedAt
   });
 
-  return { id, studentId, lessonId, completedAt };
+  const created = { id, studentId, lessonId, completedAt };
+  emitDataChange('progress', 'create', created);
+  return created;
 }
 
 export async function getProgressForStudent(studentId) {
@@ -263,7 +358,9 @@ export async function saveQuizResult(result) {
     completedAt
   };
   const id = await db.add('quizResults', payload);
-  return { ...payload, id };
+  const saved = { ...payload, id };
+  emitDataChange('quizResults', 'create', saved);
+  return saved;
 }
 
 export async function getQuizResultsForStudent(studentId) {
@@ -291,7 +388,9 @@ export async function saveDiagnosticResult(result) {
     completedAt
   };
   const id = await db.add('diagnostics', payload);
-  return { ...payload, id };
+  const saved = { ...payload, id };
+  emitDataChange('diagnostics', 'create', saved);
+  return saved;
 }
 
 export async function getDiagnosticResult(id) {
@@ -331,12 +430,14 @@ export async function saveTutorThread(studentId, messages) {
     updatedAt: new Date().toISOString()
   };
   await db.put('tutorThreads', payload);
+  emitDataChange('tutorThreads', 'upsert', payload);
   return payload;
 }
 
 export async function clearTutorThread(studentId) {
   const db = await getDB();
   await db.delete('tutorThreads', studentId);
+  emitDataChange('tutorThreads', 'delete', { studentId });
 }
 
 // ==================== ASSESSMENTS ====================
@@ -348,7 +449,9 @@ export async function saveAssessment(assessment) {
     createdAt: assessment.createdAt || new Date().toISOString()
   };
   const id = await db.add('assessments', payload);
-  return { ...payload, id };
+  const saved = { ...payload, id };
+  emitDataChange('assessments', 'create', saved);
+  return saved;
 }
 
 export async function getAssessment(id) {
@@ -368,7 +471,9 @@ export async function saveAssessmentSubmission(submission) {
     completedAt: submission.completedAt || new Date().toISOString()
   };
   const id = await db.add('assessmentSubmissions', payload);
-  return { ...payload, id };
+  const saved = { ...payload, id };
+  emitDataChange('assessmentSubmissions', 'create', saved);
+  return saved;
 }
 
 export async function getAssessmentSubmissionsForAssessment(assessmentId) {
