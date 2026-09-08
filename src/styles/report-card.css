@@ -1,0 +1,260 @@
+/* ============================================================
+   ClassConnect — Printable Terminal Report Card Styles
+   ============================================================ */
+
+.report-card-page {
+  padding-bottom: var(--space-16);
+}
+
+.report-card-nav-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+/* --- Document Sheet (A4 Dimensions on Screen) --- */
+.report-sheet {
+  max-width: 820px;
+  margin: 0 auto;
+  background: #ffffff;
+  color: #0f172a;
+  border: 2px solid #334155;
+  border-radius: 8px;
+  padding: 36px 42px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  line-height: 1.4;
+}
+
+/* --- Report Header --- */
+.report-header {
+  text-align: center;
+  border-bottom: 2px double #0f172a;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.report-header__flag-strip {
+  height: 4px;
+  background: linear-gradient(to right, #dc2626 33%, #fbbf24 33%, #fbbf24 66%, #16a34a 66%);
+  margin-bottom: 12px;
+  border-radius: 2px;
+}
+
+.report-header__republic {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.report-header__title {
+  font-size: 20px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #1e1b4b;
+  margin: 4px 0;
+}
+
+.report-header__subtitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* --- Student Identity Meta Grid --- */
+.report-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 18px;
+  padding: 14px 18px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  font-size: 12px;
+}
+
+.report-meta-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.report-meta-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.report-meta-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* --- Subject & Strand Performance Table --- */
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  font-size: 12px;
+}
+
+.report-table th {
+  background: #f1f5f9;
+  color: #1e293b;
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  padding: 8px 10px;
+  border: 1px solid #94a3b8;
+  text-align: left;
+}
+
+.report-table td {
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+}
+
+.report-table tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+/* --- Summary Scores Ribbon --- */
+.report-summary-ribbon {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 14px;
+  background: #f0fdf4;
+  border: 2px solid #86efac;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.report-summary-ribbon__item {
+  display: flex;
+  flex-direction: column;
+}
+
+.report-summary-ribbon__label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #166534;
+  margin-bottom: 2px;
+}
+
+.report-summary-ribbon__value {
+  font-size: 18px;
+  font-weight: 900;
+  color: #14532d;
+}
+
+/* --- Remarks & Signatures Section --- */
+.report-remarks-box {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.report-remarks-title {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.report-signatures-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 36px;
+  margin-top: 32px;
+  padding-top: 16px;
+}
+
+.report-sig-line {
+  border-top: 1px solid #475569;
+  padding-top: 6px;
+  text-align: center;
+  font-size: 11px;
+  color: #334155;
+  font-weight: 600;
+}
+
+/* ============================================================
+   PRINT OPTIMIZATIONS (@media print)
+   ============================================================ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .report-card-print-area,
+  .report-card-print-area * {
+    visibility: visible;
+  }
+
+  .report-card-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .report-sheet {
+    box-shadow: none !important;
+    border: 1.5px solid #000 !important;
+    padding: 18px 24px !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .report-meta-grid,
+  .report-remarks-box,
+  .report-summary-ribbon {
+    background: transparent !important;
+    border-color: #000 !important;
+  }
+
+  .report-table th,
+  .report-table td {
+    border-color: #000 !important;
+    color: #000 !important;
+  }
+}

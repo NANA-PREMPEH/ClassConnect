@@ -2,7 +2,19 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  server: { host: '0.0.0.0' },
   plugins: [
+    {
+      name: 'classconnect-lan-relay',
+      configureServer(server) {
+        server.ws.on('classconnect:lan', (message) => {
+          // Relay only; no student data is persisted by the development server.
+          if (message && typeof message === 'object' && typeof message.room === 'string') {
+            server.ws.send('classconnect:lan', message);
+          }
+        });
+      }
+    },
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/*.png', 'images/*.png', 'images/*.webp', 'images/*.svg'],

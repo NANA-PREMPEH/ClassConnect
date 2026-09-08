@@ -607,3 +607,248 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Class Selector & Management --- */
+.select-class {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.class-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.class-manage-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.class-manage-item__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.class-manage-item__title {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+}
+
+.class-manage-item__meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* --- Roster Filter Bar & Actions --- */
+.roster-filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.roster-search-input {
+  min-width: 240px;
+  flex: 1;
+  max-width: 380px;
+}
+
+.student-table__actions {
+  white-space: nowrap;
+}
+
+/* --- Bulk CSV Importer Styles --- */
+.import-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  text-align: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  transition: all var(--transition-fast);
+  margin-bottom: var(--space-4);
+}
+
+.import-dropzone:hover,
+.import-dropzone--active {
+  border-color: var(--color-primary-400);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.import-dropzone__icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-2);
+}
+
+.import-dropzone__title {
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-1);
+}
+
+.import-dropzone__subtitle {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.import-preview-wrap {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-4);
+}
+
+.import-summary-bar {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-xs);
+}
+
+/* --- Printable Student Login Slips --- */
+.print-slips-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+
+.slip-card {
+  border: 2px dashed #94a3b8;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+  color: #0f172a;
+  page-break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.slip-card__header {
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.slip-card__school {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #4338ca;
+}
+
+.slip-card__app {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.slip-card__name {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.slip-card__meta {
+  font-size: 12px;
+  color: #475569;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.slip-card__pin-box {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.slip-card__pin-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.slip-card__pin-value {
+  font-family: monospace;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #1e1b4b;
+}
+
+.slip-card__footer {
+  font-size: 10px;
+  color: #64748b;
+  text-align: center;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .print-slips-modal-content,
+  .print-slips-modal-content * {
+    visibility: visible;
+  }
+
+  .print-slips-modal-content {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 10mm;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-slips-container {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8mm !important;
+  }
+
+  .slip-card {
+    border: 1px dashed #64748b !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+}
+

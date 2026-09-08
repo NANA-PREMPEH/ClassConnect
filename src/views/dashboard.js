@@ -16,6 +16,15 @@ import {
   getAllProgress,
   getAllQuizResults,
   getAllStudents,
+  getAllClasses,
+  createClass,
+  updateClass,
+  deleteClass,
+  updateStudent,
+  updateStudentPin,
+  bulkCreateStudents,
+  downloadFullSchoolBackup,
+  restoreFullSchoolBackup,
   getApiKey,
   getTeacherPin,
   setApiKeyAsync,
@@ -25,6 +34,7 @@ import {
 import { lessons } from '../data/lessons.js';
 import { buildStudentProfile } from '../engine/personalization.js';
 import { ensureChartJS } from '../engine/chart-loader.js';
+import { parseRosterCSV, downloadSampleRosterCSV } from '../engine/roster-importer.js';
 
 const DASHBOARD_REFRESH_INTERVAL_MS = 30000;
 
@@ -39,6 +49,17 @@ let dashboardFocusHandler = null;
 let dashboardRefreshPromise = null;
 let dashboardRefreshQueued = false;
 let activeDashboardNavigate = null;
+let selectedClassId = 'all';
+let rosterSearchQuery = '';
+
+function escapeHTML(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
 
 function average(values = []) {
   if (!values.length) return 0;
@@ -306,13 +327,15 @@ function buildDashboardSnapshot(students, results, progressRecords, diagnostics,
 
 async function loadDashboardSnapshot() {
   const [
-    students,
+    allClasses,
+    allStudents,
     results,
     progressRecords,
     diagnostics,
     assessments,
     assessmentSubmissions
   ] = await Promise.all([
+    getAllClasses(),
     getAllStudents(),
     getAllQuizResults(),
     getAllProgress(),
@@ -321,14 +344,46 @@ async function loadDashboardSnapshot() {
     getAllAssessmentSubmissions()
   ]);
 
+  const classesWithCounts = allClasses.map((c) => ({
+    ...c,
+    studentCount: allStudents.filter((s) => s.classId === c.id).length
+  }));
+
+  // Filter students based on selectedClassId
+  const students = selectedClassId === 'all'
+    ? allStudents
+    : allStudents.filter((s) => String(s.classId) === String(selectedClassId));
+
+  const filteredStudentIds = new Set(students.map((s) => s.id));
+
+  const filteredResults = selectedClassId === 'all'
+    ? results
+    : results.filter((r) => filteredStudentIds.has(r.studentId));
+
+  const filteredProgress = selectedClassId === 'all'
+    ? progressRecords
+    : progressRecords.filter((p) => filteredStudentIds.has(p.studentId));
+
+  const filteredDiagnostics = selectedClassId === 'all'
+    ? diagnostics
+    : diagnostics.filter((d) => filteredStudentIds.has(d.studentId));
+
+  const filteredSubmissions = selectedClassId === 'all'
+    ? assessmentSubmissions
+    : assessmentSubmissions.filter((s) => filteredStudentIds.has(s.studentId));
+
   dashboardSnapshot = buildDashboardSnapshot(
     students,
-    results,
-    progressRecords,
-    diagnostics,
+    filteredResults,
+    filteredProgress,
+    filteredDiagnostics,
     assessments,
-    assessmentSubmissions
+    filteredSubmissions
   );
+
+  dashboardSnapshot.classes = classesWithCounts;
+  dashboardSnapshot.allStudents = allStudents;
+  dashboardSnapshot.selectedClassId = selectedClassId;
   dashboardLastUpdatedAt = new Date().toISOString();
 
   return dashboardSnapshot;
@@ -363,8 +418,25 @@ function renderStudentRoster(snapshot) {
     return `
       <div class="empty-state dashboard-empty">
         <div class="empty-state__icon">Data</div>
-        <h2 class="empty-state__title">No Student Learning Data Yet</h2>
-        <p class="empty-state__text">As students log in, complete diagnostics, and take quizzes, this live roster will update automatically.</p>
+        <h2 class="empty-state__title">No Students in Selected View</h2>
+        <p class="empty-state__text">Import a CSV roster or change your class filter to display student learning records.</p>
+      </div>
+    `;
+  }
+
+  const query = rosterSearchQuery.trim().toLowerCase();
+  const filteredStudents = query
+    ? snapshot.students.filter((s) =>
+        (s.name && s.name.toLowerCase().includes(query)) ||
+        (s.indexNumber && s.indexNumber.toLowerCase().includes(query))
+      )
+    : snapshot.students;
+
+  if (!filteredStudents.length) {
+    return `
+      <div class="empty-state dashboard-empty">
+        <h3 class="empty-state__title">No Matching Learners</h3>
+        <p class="empty-state__text">No students matched "${escapeHTML(rosterSearchQuery)}". Try searching for another name or index number.</p>
       </div>
     `;
   }
@@ -374,16 +446,19 @@ function renderStudentRoster(snapshot) {
       <table class="student-table">
         <thead>
           <tr>
+            <th>Index #</th>
             <th>Name</th>
-            <th>Lessons Completed</th>
-            <th>Quizzes Taken</th>
+            <th>Class / Stream</th>
+            <th>Gender</th>
+            <th>Lessons</th>
+            <th>Quizzes</th>
             <th>Latest Score</th>
-            <th>Next Focus</th>
             <th>Risk</th>
+            <th style="text-align: right;">Actions</th>
           </tr>
         </thead>
         <tbody>
-          ${snapshot.students.map((student) => {
+          ${filteredStudents.map((student) => {
             const studentResults = snapshot.results
               .filter((result) => result.studentId === student.id)
               .sort((left, right) => new Date(right.completedAt) - new Date(left.completedAt));
@@ -391,16 +466,22 @@ function renderStudentRoster(snapshot) {
             const lessonsCompleted = snapshot.progressRecords.filter((record) => record.studentId === student.id).length;
             const studentProfileEntry = snapshot.studentProfiles.find((entry) => entry.student.id === student.id);
             const risk = studentProfileEntry?.profile.risk;
-            const nextFocus = studentProfileEntry?.profile.recommendedNext?.title || '-';
+            const className = snapshot.classes.find((c) => c.id === student.classId)?.name || 'General';
 
             return `
               <tr class="student-row" data-id="${student.id}">
-                <td class="student-table__name">${student.name}</td>
+                <td><code style="font-size: var(--font-size-xs);">${escapeHTML(student.indexNumber || `GES-B7-${student.id}`)}</code></td>
+                <td class="student-table__name">${escapeHTML(student.name)}</td>
+                <td><span class="badge badge--neutral">${escapeHTML(className)}</span></td>
+                <td>${escapeHTML(student.gender || 'Unspecified')}</td>
                 <td>${lessonsCompleted}/${lessons.length}</td>
                 <td>${studentResults.length}</td>
                 <td class="student-table__score">${latest ? `${Math.round((latest.score / latest.totalQuestions) * 100)}%` : '-'}</td>
-                <td>${nextFocus}</td>
                 <td><span class="badge badge--${risk?.badge || 'neutral'}">${risk?.label || 'No Data'}</span></td>
+                <td style="text-align: right; white-space: nowrap;" onclick="event.stopPropagation();">
+                  <button class="btn btn--ghost btn--xs btn-quick-report-card" data-id="${student.id}" title="View Terminal Report Card">Report Card</button>
+                  <button class="btn btn--ghost btn--xs btn-quick-reset-pin" data-id="${student.id}" title="Reset 4-digit PIN">Reset PIN</button>
+                </td>
               </tr>
             `;
           }).join('')}
@@ -421,6 +502,17 @@ function renderDashboardBody(snapshot) {
           <p class="dashboard-header__subtitle">Analytics based on learning data stored on this device.</p>
         </div>
         <div class="dashboard-header__actions">
+          <div class="class-selector-box" style="display: flex; align-items: center; gap: var(--space-2);">
+            <select id="class-filter-select" class="select-class" title="Filter by Class">
+              <option value="all" ${snapshot.selectedClassId === 'all' ? 'selected' : ''}>All Classes (${snapshot.classes.length})</option>
+              ${snapshot.classes.map((c) => `
+                <option value="${c.id}" ${String(snapshot.selectedClassId) === String(c.id) ? 'selected' : ''}>
+                  ${escapeHTML(c.name)} (${c.studentCount})
+                </option>
+              `).join('')}
+            </select>
+            <button class="btn btn--secondary btn--sm" id="btn-manage-classes">Classes</button>
+          </div>
           <div class="dashboard-live-pill">
             <span class="dashboard-live-pill__dot"></span>
             Live database sync
@@ -510,15 +602,25 @@ function renderDashboardBody(snapshot) {
       <div class="student-section__header">
         <div>
           <h3 class="student-section__title">Student Roster</h3>
-          <p class="dashboard-header__subtitle">Tap a student row to open quiz history, risk signals, diagnostic summary, and per-question performance.</p>
+          <p class="dashboard-header__subtitle">Manage learners, view continuous assessment broadsheets, print report cards, or reset PINs.</p>
         </div>
-        <div class="export-area" style="margin-top: 0;">
-          <button class="btn btn--primary btn--sm" id="btn-open-assessment-lab">Assessment Lab</button>
+        <div class="export-area" style="margin-top: 0; display: flex; gap: var(--space-2); flex-wrap: wrap;">
+          <button class="btn btn--secondary btn--sm" id="btn-import-roster">Import Roster (CSV)</button>
+          <button class="btn btn--secondary btn--sm" id="btn-print-slips">Print Login Slips</button>
+          <button class="btn btn--primary btn--sm" id="btn-open-gradebook">📊 Broadsheet Gradebook</button>
+          <button class="btn btn--secondary btn--sm" id="btn-open-assessment-lab">Assessment Lab</button>
+          <button class="btn btn--primary btn--sm" id="btn-open-lab-monitor">Live Lab Monitor</button>
           <button class="btn btn--ghost btn--sm" id="btn-export-csv">Export CSV</button>
         </div>
       </div>
 
-      ${renderStudentRoster(snapshot)}
+      <div class="roster-filter-bar">
+        <input type="search" id="roster-search-input" class="input input--sm roster-search-input" placeholder="Search roster by name or index #..." value="${escapeHTML(rosterSearchQuery)}">
+      </div>
+
+      <div id="roster-table-container">
+        ${renderStudentRoster(snapshot)}
+      </div>
     </div>
   `;
 }
@@ -535,7 +637,13 @@ function destroyCharts() {
 function bindDashboardActionHandlers(navigate) {
   const exportBtn = document.getElementById('btn-export-csv');
   const assessmentLabBtn = document.getElementById('btn-open-assessment-lab');
+  const labMonitorBtn = document.getElementById('btn-open-lab-monitor');
   const refreshBtn = document.getElementById('btn-refresh-dashboard');
+  const classFilterSelect = document.getElementById('class-filter-select');
+  const manageClassesBtn = document.getElementById('btn-manage-classes');
+  const importRosterBtn = document.getElementById('btn-import-roster');
+  const printSlipsBtn = document.getElementById('btn-print-slips');
+  const searchInput = document.getElementById('roster-search-input');
 
   if (exportBtn) {
     exportBtn.addEventListener('click', async () => {
@@ -550,6 +658,14 @@ function bindDashboardActionHandlers(navigate) {
       navigate('/assessment-lab');
     });
   }
+  if (labMonitorBtn) labMonitorBtn.addEventListener('click', () => navigate('/lab-monitor'));
+
+  const gradebookBtn = document.getElementById('btn-open-gradebook');
+  if (gradebookBtn) {
+    gradebookBtn.addEventListener('click', () => {
+      navigate('/gradebook');
+    });
+  }
 
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => {
@@ -557,10 +673,68 @@ function bindDashboardActionHandlers(navigate) {
     });
   }
 
+  if (classFilterSelect) {
+    classFilterSelect.addEventListener('change', (e) => {
+      selectedClassId = e.target.value;
+      void refreshDashboardView('manual');
+    });
+  }
+
+  if (manageClassesBtn) {
+    manageClassesBtn.addEventListener('click', () => {
+      void showManageClassesModal();
+    });
+  }
+
+  if (importRosterBtn) {
+    importRosterBtn.addEventListener('click', () => {
+      void showImportRosterModal();
+    });
+  }
+
+  if (printSlipsBtn) {
+    printSlipsBtn.addEventListener('click', () => {
+      void showPrintLoginSlipsModal();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      rosterSearchQuery = e.target.value;
+      const container = document.getElementById('roster-table-container');
+      if (container && dashboardSnapshot) {
+        container.innerHTML = renderStudentRoster(dashboardSnapshot);
+        bindRosterInteractiveEvents();
+      }
+    });
+  }
+
+  bindRosterInteractiveEvents();
+}
+
+function bindRosterInteractiveEvents() {
   document.querySelectorAll('.student-row').forEach((row) => {
     row.addEventListener('click', (event) => {
       const id = Number.parseInt(event.currentTarget.dataset.id, 10);
       showStudentDetailModal(id);
+    });
+  });
+
+  document.querySelectorAll('.btn-quick-reset-pin').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const id = Number.parseInt(event.currentTarget.dataset.id, 10);
+      void handleResetStudentPin(id);
+    });
+  });
+
+  document.querySelectorAll('.btn-quick-report-card').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const id = Number.parseInt(event.currentTarget.dataset.id, 10);
+      if (activeDashboardNavigate) {
+        activeDashboardNavigate(`/report-card/${id}`);
+      }
     });
   });
 }
@@ -748,6 +922,20 @@ function showSettingsModal() {
       <label>Teacher PIN</label>
       <input type="password" id="settings-teacher-pin" class="input input--pin" value="${currentPin}" placeholder="0000" maxlength="4" inputmode="numeric">
     </div>
+
+    <div class="divider" style="margin: var(--space-5) 0;"></div>
+
+    <div>
+      <h4 style="font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); margin-bottom: var(--space-2); color: var(--text-primary);">School Backup & Disaster Recovery</h4>
+      <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: var(--space-3);">
+        Export a full snapshot of classes, rosters, quiz histories, and assessments. You can restore this JSON file on any computer.
+      </p>
+      <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+        <button type="button" class="btn btn--secondary btn--sm" id="btn-backup-download">Download Full Backup (.json)</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="btn-backup-restore">Restore from Backup File</button>
+        <input type="file" id="backup-restore-file" accept=".json" style="display: none;">
+      </div>
+    </div>
   `;
 
   showModal('Dashboard Settings', html, [
@@ -776,15 +964,494 @@ function showSettingsModal() {
       }
     }
   ]);
+
+  document.getElementById('btn-backup-download')?.addEventListener('click', async () => {
+    await downloadFullSchoolBackup();
+    showToast('School database backup downloaded.', 'success');
+  });
+
+  const restoreBtn = document.getElementById('btn-backup-restore');
+  const fileInput = document.getElementById('backup-restore-file');
+
+  if (restoreBtn && fileInput) {
+    restoreBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const json = JSON.parse(event.target.result);
+          if (confirm('Are you sure you want to restore data from this backup? Any new records will be merged.')) {
+            await restoreFullSchoolBackup(json, 'merge');
+            showToast('School database restored successfully!', 'success');
+            void refreshDashboardView('manual');
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('Failed to restore backup: ' + err.message, 'error');
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+}
+
+async function handleResetStudentPin(studentId) {
+  const students = dashboardSnapshot?.students || await getAllStudents();
+  const student = students.find((s) => s.id === studentId);
+  if (!student) return;
+
+  const randomPin = String(Math.floor(1000 + Math.random() * 9000));
+  const html = `
+    <p style="margin-bottom: var(--space-4);">
+      Reset the secret 4-digit PIN for <strong>${escapeHTML(student.name)}</strong> (Index: <code>${escapeHTML(student.indexNumber || '')}</code>).
+    </p>
+    <div class="input-group">
+      <label for="reset-pin-input">New 4-Digit PIN</label>
+      <input type="password" id="reset-pin-input" class="input input--pin" value="${randomPin}" maxlength="4" pattern="[0-9]{4}" inputmode="numeric" required>
+      <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-top: var(--space-1);">A random 4-digit PIN has been suggested, or you can enter a custom one.</p>
+    </div>
+  `;
+
+  showModal(`Reset PIN: ${student.name}`, html, [
+    { label: 'Cancel', variant: 'btn--ghost' },
+    {
+      label: 'Save PIN',
+      variant: 'btn--primary',
+      onClick: async () => {
+        const pinVal = document.getElementById('reset-pin-input')?.value.trim();
+        if (!pinVal || !/^\d{4}$/.test(pinVal)) {
+          showToast('PIN must be exactly 4 digits.', 'error');
+          return false;
+        }
+
+        await updateStudentPin(studentId, pinVal);
+        showToast(`PIN for ${student.name} updated to ${pinVal}`, 'success');
+        void refreshDashboardView('manual');
+        return true;
+      }
+    }
+  ]);
+}
+
+async function handleEditStudent(studentId) {
+  const students = dashboardSnapshot?.students || await getAllStudents();
+  const classes = dashboardSnapshot?.classes || await getAllClasses();
+  const student = students.find((s) => s.id === studentId);
+  if (!student) return;
+
+  const html = `
+    <form id="form-edit-student" style="display: flex; flex-direction: column; gap: var(--space-3);">
+      <div class="input-group">
+        <label for="edit-student-name">Full Name</label>
+        <input type="text" id="edit-student-name" class="input" value="${escapeHTML(student.name)}" required>
+      </div>
+      <div class="input-group">
+        <label for="edit-student-index">Index / Admission Number</label>
+        <input type="text" id="edit-student-index" class="input" value="${escapeHTML(student.indexNumber || '')}" placeholder="e.g., GES-B7-0101">
+      </div>
+      <div class="input-group">
+        <label for="edit-student-class">Assigned Class</label>
+        <select id="edit-student-class" class="input">
+          ${classes.map((c) => `
+            <option value="${c.id}" ${c.id === student.classId ? 'selected' : ''}>${escapeHTML(c.name)}</option>
+          `).join('')}
+        </select>
+      </div>
+      <div class="input-group">
+        <label for="edit-student-gender">Gender</label>
+        <select id="edit-student-gender" class="input">
+          <option value="Male" ${student.gender === 'Male' ? 'selected' : ''}>Male</option>
+          <option value="Female" ${student.gender === 'Female' ? 'selected' : ''}>Female</option>
+          <option value="Unspecified" ${student.gender === 'Unspecified' || !student.gender ? 'selected' : ''}>Unspecified</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label for="edit-student-status">Enrollment Status</label>
+        <select id="edit-student-status" class="input">
+          <option value="active" ${student.status === 'active' || !student.status ? 'selected' : ''}>Active</option>
+          <option value="transferred" ${student.status === 'transferred' ? 'selected' : ''}>Transferred</option>
+          <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Graduated</option>
+        </select>
+      </div>
+    </form>
+  `;
+
+  showModal(`Edit Student: ${student.name}`, html, [
+    { label: 'Cancel', variant: 'btn--ghost' },
+    {
+      label: 'Save Changes',
+      variant: 'btn--primary',
+      onClick: async () => {
+        const name = document.getElementById('edit-student-name')?.value.trim();
+        const indexNumber = document.getElementById('edit-student-index')?.value.trim();
+        const classId = Number.parseInt(document.getElementById('edit-student-class')?.value, 10);
+        const gender = document.getElementById('edit-student-gender')?.value;
+        const status = document.getElementById('edit-student-status')?.value;
+
+        if (!name) {
+          showToast('Student name is required.', 'error');
+          return false;
+        }
+
+        await updateStudent(studentId, {
+          name,
+          indexNumber: indexNumber || null,
+          classId: classId || student.classId,
+          gender,
+          status
+        });
+
+        showToast('Student information updated.', 'success');
+        void refreshDashboardView('manual');
+        return true;
+      }
+    }
+  ]);
+}
+
+async function showManageClassesModal() {
+  const classes = await getAllClasses();
+  const students = await getAllStudents();
+
+  const classListHtml = classes.map((c) => {
+    const count = students.filter((s) => s.classId === c.id).length;
+    return `
+      <div class="class-manage-item">
+        <div class="class-manage-item__info">
+          <div class="class-manage-item__title">${escapeHTML(c.name)}</div>
+          <div class="class-manage-item__meta">${c.gradeLevel || 'B7'} · ${c.academicYear || '2026/2027'} · ${c.term || 'Term 1'} · Teacher: ${escapeHTML(c.teacherName || 'Not set')}</div>
+        </div>
+        <div>
+          <span class="badge badge--primary">${count} learners</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const html = `
+    <div style="margin-bottom: var(--space-4);">
+      <h4 style="font-size: var(--font-size-sm); margin-bottom: var(--space-2); color: var(--text-secondary);">Active Classes</h4>
+      <div class="class-manage-list">
+        ${classListHtml || '<div class="insight-empty">No classes registered yet.</div>'}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <form id="form-create-class" style="margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3);">
+      <h4 style="font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); color: var(--text-primary);">Create New Class</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+        <div class="input-group">
+          <label for="new-class-grade">Grade Level</label>
+          <select id="new-class-grade" class="input">
+            <option value="B7">Basic 7 (JHS 1)</option>
+            <option value="B8">Basic 8 (JHS 2)</option>
+            <option value="B9">Basic 9 (JHS 3)</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label for="new-class-stream">Stream / Section</label>
+          <input type="text" id="new-class-stream" class="input" placeholder="e.g., 1A or Gold" required>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+        <div class="input-group">
+          <label for="new-class-year">Academic Year</label>
+          <input type="text" id="new-class-year" class="input" value="2026/2027">
+        </div>
+        <div class="input-group">
+          <label for="new-class-term">Term</label>
+          <select id="new-class-term" class="input">
+            <option value="Term 1">Term 1</option>
+            <option value="Term 2">Term 2</option>
+            <option value="Term 3">Term 3</option>
+          </select>
+        </div>
+      </div>
+      <div class="input-group">
+        <label for="new-class-teacher">Class Teacher Name</label>
+        <input type="text" id="new-class-teacher" class="input" placeholder="e.g., Mr. Osei Prempeh">
+      </div>
+      <button type="submit" class="btn btn--primary" style="align-self: flex-start; margin-top: var(--space-2);">Create Class</button>
+    </form>
+  `;
+
+  showModal('Manage School Classes', html, [{ label: 'Close', variant: 'btn--ghost' }]);
+
+  const form = document.getElementById('form-create-class');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const grade = document.getElementById('new-class-grade')?.value || 'B7';
+      const stream = document.getElementById('new-class-stream')?.value.trim() || 'A';
+      const year = document.getElementById('new-class-year')?.value.trim() || '2026/2027';
+      const term = document.getElementById('new-class-term')?.value || 'Term 1';
+      const teacher = document.getElementById('new-class-teacher')?.value.trim() || 'Class Teacher';
+
+      const newClass = await createClass({
+        name: `${grade} — JHS ${stream}`,
+        gradeLevel: grade,
+        stream,
+        academicYear: year,
+        term,
+        teacherName: teacher
+      });
+
+      showToast(`Class "${newClass.name}" created successfully!`, 'success');
+      void refreshDashboardView('manual');
+    });
+  }
+}
+
+async function showImportRosterModal() {
+  const classes = await getAllClasses();
+  const students = await getAllStudents();
+
+  const classOptions = classes.map((c) => `
+    <option value="${c.id}">${escapeHTML(c.name)}</option>
+  `).join('');
+
+  const html = `
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4); flex-wrap: wrap; gap: var(--space-2);">
+        <p class="dashboard-header__subtitle" style="margin: 0;">Upload a CSV file to bulk import multiple students in seconds.</p>
+        <button type="button" class="btn btn--ghost btn--xs" id="btn-download-sample-csv">Download Sample CSV</button>
+      </div>
+
+      <div class="input-group" style="margin-bottom: var(--space-4);">
+        <label for="import-default-class">Assign to Class (if unspecified in CSV)</label>
+        <select id="import-default-class" class="input">
+          ${classOptions}
+        </select>
+      </div>
+
+      <div class="import-dropzone" id="import-dropzone">
+        <div class="import-dropzone__icon">📄</div>
+        <div class="import-dropzone__title">Click or drag & drop student CSV roster here</div>
+        <div class="import-dropzone__subtitle">Supports UTF-8 CSV with Index Number, Full Name, Class, Gender, PIN</div>
+        <input type="file" id="import-file-input" accept=".csv,.txt" style="display: none;">
+      </div>
+
+      <div id="import-preview-area" style="display: none;">
+        <div class="import-summary-bar" id="import-summary-bar"></div>
+        <div class="import-preview-wrap">
+          <table class="student-table" style="font-size: var(--font-size-xs);">
+            <thead>
+              <tr>
+                <th>Row</th>
+                <th>Index #</th>
+                <th>Full Name</th>
+                <th>Class</th>
+                <th>Gender</th>
+                <th>Assigned PIN</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="import-preview-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  let parsedResult = null;
+
+  showModal('Bulk Import Student Roster', html, [
+    { label: 'Cancel', variant: 'btn--ghost' },
+    {
+      label: 'Commit & Import Roster',
+      variant: 'btn--primary',
+      onClick: async () => {
+        if (!parsedResult || !parsedResult.validRecords.length) {
+          showToast('Please choose a valid CSV file first.', 'error');
+          return false;
+        }
+
+        const commitResult = await bulkCreateStudents(parsedResult.validRecords);
+        showToast(
+          `Import complete! Created ${commitResult.created.length} new student(s) and updated ${commitResult.updated.length}.`,
+          'success'
+        );
+        void refreshDashboardView('manual');
+        return true;
+      }
+    }
+  ], { modalClass: 'modal--wide' });
+
+  document.getElementById('btn-download-sample-csv')?.addEventListener('click', () => {
+    downloadSampleRosterCSV();
+    showToast('Sample roster CSV downloaded.', 'info');
+  });
+
+  const dropzone = document.getElementById('import-dropzone');
+  const fileInput = document.getElementById('import-file-input');
+
+  if (dropzone && fileInput) {
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('import-dropzone--active');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('import-dropzone--active'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('import-dropzone--active');
+      const file = e.dataTransfer.files?.[0];
+      if (file) handleFile(file);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (file) handleFile(file);
+    });
+  }
+
+  function handleFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result;
+      if (typeof text !== 'string') return;
+
+      const targetClassId = Number.parseInt(document.getElementById('import-default-class')?.value, 10) || null;
+      parsedResult = parseRosterCSV(text, classes, students, targetClassId);
+      renderPreview(parsedResult);
+    };
+    reader.readAsText(file);
+  }
+
+  function renderPreview(result) {
+    const previewArea = document.getElementById('import-preview-area');
+    const summaryBar = document.getElementById('import-summary-bar');
+    const tbody = document.getElementById('import-preview-body');
+
+    if (!result.success) {
+      showToast(result.error || 'Unable to parse CSV file.', 'error');
+      return;
+    }
+
+    previewArea.style.display = 'block';
+    summaryBar.innerHTML = `
+      <div><strong>Total rows:</strong> ${result.summary.totalRows}</div>
+      <div style="color: var(--color-success-400);"><strong>New learners:</strong> ${result.summary.newCount}</div>
+      <div style="color: var(--color-accent-400);"><strong>Updates:</strong> ${result.summary.updateCount}</div>
+      <div style="color: var(--color-warning-400);"><strong>Auto-PINs:</strong> ${result.summary.autoPinsGenerated}</div>
+      ${result.summary.errorCount ? `<div style="color: var(--color-danger-400);"><strong>Errors skipped:</strong> ${result.summary.errorCount}</div>` : ''}
+    `;
+
+    tbody.innerHTML = result.validRecords.map((r) => `
+      <tr>
+        <td>${r.rowNumber}</td>
+        <td><code>${escapeHTML(r.indexNumber || 'Auto')}</code></td>
+        <td style="font-weight: var(--font-weight-semibold);">${escapeHTML(r.name)}</td>
+        <td>${escapeHTML(r.className)}</td>
+        <td>${r.gender}</td>
+        <td><span style="font-family: monospace; font-weight: bold;">${r.pin}</span> ${r.pinGenerated ? '<small style="color: var(--color-warning-400);">(auto)</small>' : ''}</td>
+        <td><span class="badge badge--${r.isUpdate ? 'warning' : 'success'}">${r.isUpdate ? 'Update' : 'Create'}</span></td>
+      </tr>
+    `).join('');
+  }
+}
+
+async function showPrintLoginSlipsModal() {
+  const classes = await getAllClasses();
+  const students = await getAllStudents();
+  const initialClassId = selectedClassId !== 'all' ? Number.parseInt(selectedClassId, 10) : classes[0]?.id;
+
+  const html = `
+    <div class="no-print" style="margin-bottom: var(--space-4);">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: var(--space-2);">
+          <label for="print-class-select" style="font-size: var(--font-size-sm); font-weight: var(--font-weight-medium);">Filter Class:</label>
+          <select id="print-class-select" class="input input--sm">
+            <option value="all">All Classes (${students.length} students)</option>
+            ${classes.map((c) => `
+              <option value="${c.id}" ${c.id === initialClassId ? 'selected' : ''}>
+                ${escapeHTML(c.name)} (${students.filter((s) => s.classId === c.id).length} students)
+              </option>
+            `).join('')}
+          </select>
+        </div>
+        <button type="button" class="btn btn--primary btn--sm" id="btn-trigger-print">🖨️ Print All Cards</button>
+      </div>
+      <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-top: var(--space-2);">
+        Formatted for standard A4 printing (8 cards per page). Cut and distribute to learners for secure lab logins.
+      </p>
+    </div>
+
+    <div class="print-slips-modal-content">
+      <div class="print-slips-container" id="slips-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+  `;
+
+  showModal('Print Student Login Slips', html, [{ label: 'Close', variant: 'btn--ghost' }], { modalClass: 'modal--wide' });
+
+  const container = document.getElementById('slips-container');
+  const classSelect = document.getElementById('print-class-select');
+  const printBtn = document.getElementById('btn-trigger-print');
+
+  function renderSlips(targetId) {
+    const list = targetId === 'all'
+      ? students
+      : students.filter((s) => String(s.classId) === String(targetId));
+
+    if (!list.length) {
+      container.innerHTML = '<div class="insight-empty no-print">No students found in this class.</div>';
+      return;
+    }
+
+    container.innerHTML = list.map((student) => {
+      const cls = classes.find((c) => c.id === student.classId);
+      const className = cls ? cls.name : 'JHS Computing';
+      return `
+        <div class="slip-card">
+          <div class="slip-card__header">
+            <div class="slip-card__school">ClassConnect — Lab Pass</div>
+            <div class="slip-card__app">GES CCP B7</div>
+          </div>
+          <div class="slip-card__name">${escapeHTML(student.name)}</div>
+          <div class="slip-card__meta">
+            <span><strong>Index:</strong> ${escapeHTML(student.indexNumber || `GES-B7-${student.id}`)}</span>
+            <span><strong>Class:</strong> ${escapeHTML(className)}</span>
+          </div>
+          <div class="slip-card__pin-box">
+            <span class="slip-card__pin-label">Your 4-Digit Login PIN:</span>
+            <span class="slip-card__pin-value">${student.pin}</span>
+          </div>
+          <div class="slip-card__footer">
+            Keep this PIN secret. Login at http://localhost:5173/student-login
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  renderSlips(initialClassId);
+
+  classSelect?.addEventListener('change', (e) => {
+    renderSlips(e.target.value);
+  });
+
+  printBtn?.addEventListener('click', () => {
+    window.print();
+  });
 }
 
 async function showStudentDetailModal(studentId) {
   const students = dashboardSnapshot?.students || await getAllStudents();
+  const classes = dashboardSnapshot?.classes || await getAllClasses();
   const results = dashboardSnapshot?.results || await getAllQuizResults();
   const progressRecords = dashboardSnapshot?.progressRecords || await getAllProgress();
   const diagnostics = dashboardSnapshot?.diagnostics || await getAllDiagnostics();
 
   const student = students.find((entry) => entry.id === studentId);
+  if (!student) return;
+
+  const studentClass = classes.find((c) => c.id === student.classId);
   const studentResults = results
     .filter((result) => result.studentId === studentId)
     .sort((left, right) => new Date(left.completedAt) - new Date(right.completedAt));
@@ -809,16 +1476,23 @@ async function showStudentDetailModal(studentId) {
     })))
     .sort((left, right) => new Date(right.answeredAt || right.completedAt) - new Date(left.answeredAt || left.completedAt));
 
-  if (!student) return;
-
   const initials = student.name.slice(0, 2).toUpperCase();
   const html = `
     <div class="student-detail">
-      <div class="student-detail__header">
-        <div class="student-detail__avatar">${initials}</div>
-        <div>
-          <div class="student-detail__name">${student.name}</div>
-          <div class="dashboard-header__subtitle">Lessons completed: ${lessonsCompleted}/${lessons.length}</div>
+      <div class="student-detail__header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3);">
+        <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <div class="student-detail__avatar">${initials}</div>
+          <div>
+            <div class="student-detail__name">${escapeHTML(student.name)}</div>
+            <div class="dashboard-header__subtitle">
+              Index: <code>${escapeHTML(student.indexNumber || `GES-B7-${student.id}`)}</code> · Class: <strong>${escapeHTML(studentClass ? studentClass.name : 'General')}</strong> · Gender: ${escapeHTML(student.gender || 'Unspecified')}
+            </div>
+            <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+              <button class="btn btn--primary btn--xs" id="btn-modal-report-card">Terminal Report Card</button>
+              <button class="btn btn--secondary btn--xs" id="btn-modal-reset-pin">Reset PIN</button>
+              <button class="btn btn--ghost btn--xs" id="btn-modal-edit-student">Edit / Transfer</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -887,26 +1561,23 @@ async function showStudentDetailModal(studentId) {
       </div>
 
       <div class="student-detail__panel" style="margin-top: var(--space-6);">
-        <h4 class="student-detail__history-title">Per-Question Performance</h4>
+        <h4 class="student-detail__history-title">Question Breakdown (Latest Quiz)</h4>
         <div class="student-detail__table-wrap">
           <table class="student-detail__table">
             <thead>
               <tr>
-                <th>Lesson</th>
-                <th>Question</th>
+                <th>#</th>
+                <th>Concept</th>
                 <th>Result</th>
                 <th>Time</th>
-                <th>Theta After</th>
+                <th>Ability (theta)</th>
               </tr>
             </thead>
             <tbody>
-              ${attempts.length > 0 ? attempts.slice(0, 18).map((attempt) => `
+              ${latest && latest.responses ? latest.responses.map((attempt, index) => `
                 <tr>
-                  <td>${attempt.lessonId}</td>
-                  <td>
-                    <div class="student-detail__question">${attempt.stem}</div>
-                    <div class="student-detail__question-sub">${attempt.options[attempt.selectedIndex]} ${attempt.correct ? '' : `-> ${attempt.options[attempt.correctIndex]}`}</div>
-                  </td>
+                  <td>${index + 1}</td>
+                  <td>${escapeHTML(attempt.concept || 'General')}</td>
                   <td><span class="badge badge--${attempt.correct ? 'success' : 'danger'}">${attempt.correct ? 'Correct' : 'Review'}</span></td>
                   <td>${formatDuration(attempt.elapsedMs)}</td>
                   <td>${attempt.thetaAfter}</td>
@@ -920,6 +1591,21 @@ async function showStudentDetailModal(studentId) {
   `;
 
   showModal('Student Profile', html, [{ label: 'Close', variant: 'btn--ghost' }], { modalClass: 'modal--wide' });
+
+  document.getElementById('btn-modal-report-card')?.addEventListener('click', () => {
+    document.querySelector('.modal-backdrop')?.remove();
+    if (activeDashboardNavigate) {
+      activeDashboardNavigate(`/report-card/${studentId}`);
+    }
+  });
+
+  document.getElementById('btn-modal-reset-pin')?.addEventListener('click', () => {
+    void handleResetStudentPin(studentId);
+  });
+
+  document.getElementById('btn-modal-edit-student')?.addEventListener('click', () => {
+    void handleEditStudent(studentId);
+  });
 
   if (studentResults.length > 0) {
     setTimeout(() => {

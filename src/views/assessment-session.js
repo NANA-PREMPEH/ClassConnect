@@ -9,6 +9,7 @@ import { showToast } from '../components/ui.js';
 import { createProctorSession } from '../engine/proctoring.js';
 import { gradeAssessmentSubmission } from '../engine/assessment-grading.js';
 import { analyzeAssessmentIntegrity } from '../engine/submission-analysis.js';
+import { publishLabStatus, startLabSync } from '../engine/lan-sync.js';
 import {
   getAssessment,
   getAssessmentSubmissionsForStudent,
@@ -24,6 +25,7 @@ let proctorSession = null;
 let timerId = null;
 let remainingSeconds = 0;
 let isSubmitting = false;
+let labSyncUnsubscribe = null;
 
 function formatDuration(totalSeconds = 0) {
   const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
@@ -161,8 +163,21 @@ export function clearAssessmentSession() {
 async function beginAssessment(renderCurrentView) {
   if (!activeAssessment || assessmentStarted) return;
 
-  proctorSession = createProctorSession();
+  const student = getCurrentStudent();
+  proctorSession = createProctorSession({
+    onEvent: (event) => {
+      if (['fullscreen-exit', 'tab-hidden', 'window-blur'].includes(event.type)) {
+        publishLabStatus('Taking Assessment', {
+          studentId: student?.id,
+          studentName: student?.name,
+          detail: `${activeAssessment.title}: ${event.type.replaceAll('-', ' ')}`,
+          alert: true
+        });
+      }
+    }
+  });
   await proctorSession.start();
+  publishLabStatus('Taking Assessment', { studentId: student?.id, studentName: student?.name, detail: `${activeAssessment.title} (Q1/${activeAssessment.questions.length})` });
   assessmentStarted = true;
   remainingSeconds = (activeAssessment.durationMinutes || 20) * 60;
   await renderCurrentView();
@@ -218,6 +233,7 @@ async function submitAssessment(navigate) {
       integrity,
       proctor: proctorSummary
     });
+    publishLabStatus('Completed', { studentId: student.id, studentName: student.name, detail: `${activeAssessment.title} submitted`, alert: proctorSummary.label !== 'Low' });
 
     activeAssessment = null;
     activeAssessmentId = null;
@@ -338,6 +354,14 @@ export function renderAssessmentSession() {
 }
 
 export function bindAssessmentSessionEvents(navigate, renderCurrentView, assessmentId) {
+  labSyncUnsubscribe?.();
+  labSyncUnsubscribe = startLabSync((message) => {
+    if (message.type === 'control' && message.action === 'lock-screens') {
+      document.querySelectorAll('input, textarea, button').forEach((element) => { if (!element.closest('#main-nav')) element.disabled = true; });
+      showToast('The teacher has locked this assessment screen.', 'warning');
+    }
+    if (message.type === 'control' && message.action === 'force-submit') void submitAssessment(navigate);
+  });
   bindNavEvents({
     onBack: () => navigate('/assessments')
   });

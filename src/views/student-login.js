@@ -4,7 +4,14 @@
  */
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
-import { createStudent, setCurrentStudent, getAllStudents, getLatestDiagnosticForStudent } from '../engine/storage.js';
+import {
+  createStudent,
+  findStudentByIndexOrNameAndPin,
+  setCurrentStudent,
+  getAllStudents,
+  getAllClasses,
+  getLatestDiagnosticForStudent
+} from '../engine/storage.js';
 import { showToast } from '../components/ui.js';
 
 export function renderStudentLogin() {
@@ -14,13 +21,13 @@ export function renderStudentLogin() {
       <div class="card card--glass">
         <div style="text-align: center; margin-bottom: var(--space-8);">
           <h2 class="card__title" style="font-size: var(--font-size-2xl);">Student Login</h2>
-          <p class="card__subtitle">Enter your name and a 4-digit PIN.</p>
+          <p class="card__subtitle">Enter your name or student index number and 4-digit PIN.</p>
         </div>
 
         <form id="login-form" style="display: flex; flex-direction: column; gap: var(--space-6);">
           <div class="input-group">
-            <label for="student-name">Your Full Name</label>
-            <input type="text" id="student-name" class="input" placeholder="e.g., Kwame Mensah" required minlength="2" autocomplete="off">
+            <label for="student-name">Full Name or Student Index Number</label>
+            <input type="text" id="student-name" class="input" placeholder="e.g., Kwame Mensah or GES-B7-0101" required minlength="2" autocomplete="off">
           </div>
           <div class="input-group">
             <label for="student-pin">4-Digit PIN (Keep this secret!)</label>
@@ -51,17 +58,23 @@ export function bindStudentLoginEvents(navigate) {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = nameInput.value.trim();
+    const identifier = nameInput.value.trim();
     const pin = pinInput.value;
 
-    if (!name || pin.length !== 4) {
-      showToast('Please enter your name and a 4-digit PIN.', 'error');
+    if (!identifier || pin.length !== 4) {
+      showToast('Please enter your name or index number and a 4-digit PIN.', 'error');
       return;
     }
 
     try {
-      // Find or create
-      const student = await createStudent(name, pin);
+      // 1. Try finding student by Index Number or Name + PIN
+      let student = await findStudentByIndexOrNameAndPin(identifier, pin);
+
+      // 2. If not found, create new student using the entered identifier as name
+      if (!student) {
+        student = await createStudent(identifier, pin);
+      }
+
       setCurrentStudent(student);
       const diagnostic = await getLatestDiagnosticForStudent(student.id);
       navigate(diagnostic ? '/lessons' : '/diagnostic');
@@ -89,24 +102,26 @@ export function bindStudentLoginEvents(navigate) {
   recentStudentList.addEventListener('click', (event) => {
     const button = event.target.closest('.student-quick-select');
     if (button) {
-      nameInput.value = button.dataset.name;
+      nameInput.value = button.dataset.identifier || button.dataset.name;
       pinInput.focus();
     }
   });
 
-  // Recent students are a convenience only. Do not delay the login form while
-  // the device database is opening or being upgraded.
-  void getAllStudents()
-    .then((students) => {
+  // Recent students are a convenience only.
+  void Promise.all([getAllStudents(), getAllClasses()])
+    .then(([students, classes]) => {
       if (!students.length) return;
 
-      students.slice(0, 5).forEach((student) => {
+      students.slice(0, 6).forEach((student) => {
+        const cls = classes.find((c) => c.id === student.classId);
+        const classLabel = cls ? ` [${cls.stream || cls.name}]` : '';
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'badge badge--neutral student-quick-select';
         button.dataset.name = student.name;
+        button.dataset.identifier = student.indexNumber || student.name;
         button.style.cssText = 'padding: var(--space-2) var(--space-3); cursor: pointer; border: 1px solid var(--color-slate-600);';
-        button.textContent = student.name;
+        button.textContent = `${student.name}${classLabel}`;
         recentStudentList.append(button);
       });
 

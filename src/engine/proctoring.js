@@ -15,14 +15,16 @@ function buildEvent(type, detail = {}) {
   };
 }
 
-export function createProctorSession() {
+export function createProctorSession({ onEvent = null } = {}) {
   const events = [];
   const listeners = [];
   const textState = new Map();
   let startedAt = null;
 
   function logEvent(type, detail = {}) {
-    events.push(buildEvent(type, detail));
+    const event = buildEvent(type, detail);
+    events.push(event);
+    onEvent?.(event);
   }
 
   function addManagedListener(target, eventName, handler, options) {

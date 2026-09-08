@@ -1,0 +1,167 @@
+/* ============================================================
+   ClassConnect — Master Broadsheet Gradebook Styles
+   ============================================================ */
+
+.gradebook-page {
+  padding-bottom: var(--space-16);
+}
+
+.gradebook-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
+}
+
+.gradebook-header__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-extrabold);
+  margin-bottom: var(--space-1);
+}
+
+.gradebook-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* --- Weight Controls Strip --- */
+.weights-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-6);
+}
+
+.weights-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.weight-input-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.weight-input {
+  width: 60px;
+  text-align: center;
+  padding: var(--space-1) var(--space-2);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+}
+
+/* --- Broadsheet Table Wrap --- */
+.broadsheet-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.broadsheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.broadsheet-table th {
+  padding: var(--space-3) var(--space-4);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.broadsheet-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.broadsheet-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* --- Rank Medals --- */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  font-weight: var(--font-weight-extrabold);
+  font-size: var(--font-size-xs);
+}
+
+.rank-badge--1 {
+  background: linear-gradient(135deg, #fbbf24, #d97706);
+  color: #000;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+}
+
+.rank-badge--2 {
+  background: linear-gradient(135deg, #cbd5e1, #94a3b8);
+  color: #000;
+}
+
+.rank-badge--3 {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  color: #fff;
+}
+
+.rank-badge--other {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+/* --- Summary Stats Strip --- */
+.broadsheet-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.broadsheet-stat-card {
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.broadsheet-stat-card__value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-extrabold);
+  color: var(--color-primary-400);
+  margin-bottom: var(--space-1);
+}
+
+.broadsheet-stat-card__label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

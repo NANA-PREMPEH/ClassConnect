@@ -6,7 +6,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'classconnect';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const SETTINGS_STORE = 'settings';
 const FEEDBACK_CACHE_STORE = 'feedbackCache';
 const DATA_CHANGE_EVENT = 'classconnect:datachange';
@@ -85,10 +85,26 @@ export function subscribeToDataChanges(listener) {
   };
 }
 
-function ensureBaseStores(db) {
+function ensureBaseStores(db, transaction = null) {
+  if (!db.objectStoreNames.contains('classes')) {
+    const classStore = db.createObjectStore('classes', { keyPath: 'id', autoIncrement: true });
+    classStore.createIndex('gradeLevel', 'gradeLevel', { unique: false });
+    classStore.createIndex('academicYear', 'academicYear', { unique: false });
+  }
+
   if (!db.objectStoreNames.contains('students')) {
     const studentStore = db.createObjectStore('students', { keyPath: 'id', autoIncrement: true });
     studentStore.createIndex('name', 'name', { unique: false });
+    studentStore.createIndex('classId', 'classId', { unique: false });
+    studentStore.createIndex('indexNumber', 'indexNumber', { unique: false });
+  } else if (transaction) {
+    const studentStore = transaction.objectStore('students');
+    if (!studentStore.indexNames.contains('classId')) {
+      studentStore.createIndex('classId', 'classId', { unique: false });
+    }
+    if (!studentStore.indexNames.contains('indexNumber')) {
+      studentStore.createIndex('indexNumber', 'indexNumber', { unique: false });
+    }
   }
 
   if (!db.objectStoreNames.contains('progress')) {
@@ -136,8 +152,8 @@ function ensureBaseStores(db) {
 function getDB() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        ensureBaseStores(db);
+      upgrade(db, oldVersion, newVersion, transaction) {
+        ensureBaseStores(db, transaction);
       },
       blocked(currentVersion, blockedVersion, event) {
         console.warn(
@@ -200,6 +216,12 @@ async function persistSetting(key, value) {
 
 export async function hydrateSettingsFromDB() {
   const db = await getDB();
+
+  try {
+    await ensureDefaultClassAndMigrateStudents(db);
+  } catch (err) {
+    console.warn('[ClassConnect] Default class migration notice:', err);
+  }
 
   await Promise.all(
     LEGACY_SETTING_KEYS.map(async (key) => {
@@ -276,21 +298,162 @@ export async function setTeacherPinAsync(pin) {
   await setSettingAsync('teacherPin', pin);
 }
 
+// ==================== CLASSES ====================
+
+export async function ensureDefaultClassAndMigrateStudents(dbInstance = null) {
+  const db = dbInstance || await getDB();
+  const classes = await db.getAll('classes');
+  let defaultClass = classes[0];
+
+  if (!defaultClass) {
+    const createdAt = new Date().toISOString();
+    const id = await db.add('classes', {
+      name: 'B7 — JHS 1A',
+      gradeLevel: 'B7',
+      stream: '1A',
+      academicYear: '2026/2027',
+      term: 'Term 1',
+      teacherName: 'Class Teacher',
+      createdAt
+    });
+    defaultClass = {
+      id,
+      name: 'B7 — JHS 1A',
+      gradeLevel: 'B7',
+      stream: '1A',
+      academicYear: '2026/2027',
+      term: 'Term 1',
+      teacherName: 'Class Teacher',
+      createdAt
+    };
+    emitDataChange('classes', 'create', defaultClass);
+  }
+
+  // Check students that don't have classId or indexNumber
+  const students = await db.getAll('students');
+  const tx = db.transaction('students', 'readwrite');
+  let migratedCount = 0;
+
+  for (const student of students) {
+    let changed = false;
+    if (!student.classId) {
+      student.classId = defaultClass.id;
+      changed = true;
+    }
+    if (!student.status) {
+      student.status = 'active';
+      changed = true;
+    }
+    if (!student.gender) {
+      student.gender = 'unspecified';
+      changed = true;
+    }
+    if (!student.indexNumber) {
+      student.indexNumber = `GES-B7-${String(student.id).padStart(4, '0')}`;
+      changed = true;
+    }
+    if (changed) {
+      await tx.store.put(student);
+      migratedCount += 1;
+    }
+  }
+
+  await tx.done;
+  return { defaultClass, migratedCount };
+}
+
+export async function createClass(classData) {
+  const db = await getDB();
+  const createdAt = new Date().toISOString();
+  const payload = {
+    name: classData.name?.trim() || `${classData.gradeLevel || 'B7'} — ${classData.stream || 'Stream A'}`,
+    gradeLevel: classData.gradeLevel || 'B7',
+    stream: classData.stream || 'A',
+    academicYear: classData.academicYear || '2026/2027',
+    term: classData.term || 'Term 1',
+    teacherName: classData.teacherName?.trim() || 'Class Teacher',
+    createdAt
+  };
+  const id = await db.add('classes', payload);
+  const created = { ...payload, id };
+  emitDataChange('classes', 'create', created);
+  return created;
+}
+
+export async function getAllClasses() {
+  const db = await getDB();
+  const classes = await db.getAll('classes');
+  if (classes.length === 0) {
+    const { defaultClass } = await ensureDefaultClassAndMigrateStudents(db);
+    return defaultClass ? [defaultClass] : [];
+  }
+  return classes;
+}
+
+export async function getClass(id) {
+  const db = await getDB();
+  return db.get('classes', id);
+}
+
+export async function updateClass(id, updates) {
+  const db = await getDB();
+  const existing = await db.get('classes', id);
+  if (!existing) return null;
+
+  const payload = {
+    ...existing,
+    ...updates,
+    id,
+    updatedAt: new Date().toISOString()
+  };
+  await db.put('classes', payload);
+  emitDataChange('classes', 'update', payload);
+  return payload;
+}
+
+export async function deleteClass(id) {
+  const db = await getDB();
+  const students = await db.getAllFromIndex('students', 'classId', id);
+  if (students.length > 0) {
+    throw new Error(`Cannot delete class: ${students.length} student(s) are assigned to it. Reassign or remove them first.`);
+  }
+
+  await db.delete('classes', id);
+  emitDataChange('classes', 'delete', { id });
+  return true;
+}
+
 // ==================== STUDENTS ====================
 
-export async function createStudent(name, pin) {
+export async function createStudent(name, pin, extra = {}) {
   const db = await getDB();
   const existing = await findStudentByNameAndPin(name, pin);
   if (existing) return existing;
 
+  let classId = extra.classId;
+  if (!classId) {
+    const classes = await getAllClasses();
+    classId = classes[0]?.id || 1;
+  }
+
   const createdAt = new Date().toISOString();
-  const id = await db.add('students', {
+  const payload = {
     name: name.trim(),
     pin,
+    classId,
+    indexNumber: extra.indexNumber?.trim() || null,
+    gender: extra.gender || 'unspecified',
+    status: extra.status || 'active',
     createdAt
-  });
+  };
 
-  const created = { id, name: name.trim(), pin, createdAt };
+  const id = await db.add('students', payload);
+  if (!payload.indexNumber) {
+    payload.indexNumber = `GES-B7-${String(id).padStart(4, '0')}`;
+    await db.put('students', { ...payload, id });
+  }
+
+  const created = { ...payload, id };
   emitDataChange('students', 'create', created);
   return created;
 }
@@ -299,6 +462,123 @@ export async function findStudentByNameAndPin(name, pin) {
   const db = await getDB();
   const all = await db.getAllFromIndex('students', 'name', name.trim());
   return all.find((student) => student.pin === pin) || null;
+}
+
+export async function findStudentByIndexOrNameAndPin(identifier, pin) {
+  const db = await getDB();
+  const cleanId = (identifier || '').trim().toLowerCase();
+  if (!cleanId) return null;
+
+  const all = await db.getAll('students');
+
+  // 1. Try matching by Index Number
+  const byIndex = all.find((student) =>
+    student.indexNumber && student.indexNumber.trim().toLowerCase() === cleanId && student.pin === pin
+  );
+  if (byIndex) return byIndex;
+
+  // 2. Try matching by Full Name
+  const byName = all.find((student) =>
+    student.name && student.name.trim().toLowerCase() === cleanId && student.pin === pin
+  );
+  return byName || null;
+}
+
+export async function updateStudent(id, updates) {
+  const db = await getDB();
+  const existing = await db.get('students', id);
+  if (!existing) return null;
+
+  const payload = {
+    ...existing,
+    ...updates,
+    id,
+    updatedAt: new Date().toISOString()
+  };
+  await db.put('students', payload);
+  emitDataChange('students', 'update', payload);
+  return payload;
+}
+
+export async function updateStudentPin(id, newPin) {
+  if (!/^\d{4}$/.test(newPin)) {
+    throw new Error('PIN must be exactly 4 numeric digits.');
+  }
+  return updateStudent(id, { pin: newPin });
+}
+
+export async function getStudentsByClass(classId) {
+  const db = await getDB();
+  return db.getAllFromIndex('students', 'classId', classId);
+}
+
+export async function bulkCreateStudents(studentsList) {
+  const db = await getDB();
+  const results = { created: [], updated: [], errors: [] };
+  const allExisting = await db.getAll('students');
+
+  const tx = db.transaction('students', 'readwrite');
+  const store = tx.store;
+
+  for (const item of studentsList) {
+    try {
+      const trimmedName = item.name?.trim();
+      const cleanIndex = item.indexNumber?.trim();
+      if (!trimmedName) {
+        results.errors.push({ item, error: 'Student name is required.' });
+        continue;
+      }
+
+      let match = null;
+      if (cleanIndex) {
+        match = allExisting.find((s) => s.indexNumber && s.indexNumber.toLowerCase() === cleanIndex.toLowerCase());
+      }
+      if (!match) {
+        match = allExisting.find((s) =>
+          s.name && s.name.toLowerCase() === trimmedName.toLowerCase() && s.classId === (item.classId || s.classId)
+        );
+      }
+
+      if (match) {
+        const updated = {
+          ...match,
+          ...item,
+          id: match.id,
+          name: trimmedName,
+          indexNumber: cleanIndex || match.indexNumber,
+          updatedAt: new Date().toISOString()
+        };
+        await store.put(updated);
+        results.updated.push(updated);
+      } else {
+        const pin = item.pin && /^\d{4}$/.test(item.pin)
+          ? item.pin
+          : String(Math.floor(1000 + Math.random() * 9000));
+
+        const created = {
+          name: trimmedName,
+          pin,
+          classId: item.classId || 1,
+          indexNumber: cleanIndex || null,
+          gender: item.gender || 'unspecified',
+          status: item.status || 'active',
+          createdAt: new Date().toISOString()
+        };
+        const id = await store.add(created);
+        if (!created.indexNumber) {
+          created.indexNumber = `GES-B7-${String(id).padStart(4, '0')}`;
+          await store.put({ ...created, id });
+        }
+        results.created.push({ ...created, id });
+      }
+    } catch (err) {
+      results.errors.push({ item, error: err.message });
+    }
+  }
+
+  await tx.done;
+  emitDataChange('students', 'bulk', results);
+  return results;
 }
 
 export async function getAllStudents() {
@@ -612,4 +892,85 @@ export function downloadCSV(csv, filename = 'classconnect_data.csv') {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+// ==================== BACKUP & RESTORE ====================
+
+const ALL_BACKUP_STORES = [
+  'classes',
+  'students',
+  'progress',
+  'quizResults',
+  'diagnostics',
+  'tutorThreads',
+  'assessments',
+  'assessmentSubmissions',
+  FEEDBACK_CACHE_STORE,
+  SETTINGS_STORE
+];
+
+export async function exportFullSchoolBackup() {
+  const db = await getDB();
+  const backupData = {};
+
+  for (const storeName of ALL_BACKUP_STORES) {
+    if (db.objectStoreNames.contains(storeName)) {
+      backupData[storeName] = await db.getAll(storeName);
+    }
+  }
+
+  return {
+    app: 'ClassConnect',
+    schemaVersion: DB_VERSION,
+    exportedAt: new Date().toISOString(),
+    data: backupData
+  };
+}
+
+export async function downloadFullSchoolBackup() {
+  const payload = await exportFullSchoolBackup();
+  const json = JSON.stringify(payload, null, 2);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `classconnect_school_backup_${dateStr}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+  return payload;
+}
+
+export async function restoreFullSchoolBackup(backupPayload, mode = 'merge') {
+  if (!backupPayload || backupPayload.app !== 'ClassConnect' || !backupPayload.data) {
+    throw new Error('Invalid ClassConnect backup file. Expected valid JSON with app metadata.');
+  }
+
+  const db = await getDB();
+  const summary = {};
+
+  for (const [storeName, records] of Object.entries(backupPayload.data)) {
+    if (!db.objectStoreNames.contains(storeName) || !Array.isArray(records)) {
+      continue;
+    }
+
+    const tx = db.transaction(storeName, 'readwrite');
+    if (mode === 'overwrite') {
+      await tx.store.clear();
+    }
+
+    let count = 0;
+    for (const record of records) {
+      await tx.store.put(record);
+      count += 1;
+    }
+    await tx.done;
+    summary[storeName] = count;
+  }
+
+  // Ensure default class and migrated students exist after restore
+  await ensureDefaultClassAndMigrateStudents(db);
+
+  emitDataChange('all', 'restore', summary);
+  return summary;
 }

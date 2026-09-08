@@ -10,6 +10,9 @@ import './styles/quiz.css';
 import './styles/dashboard.css';
 import './styles/personalization.css';
 import './styles/assessment.css';
+import './styles/gradebook.css';
+import './styles/report-card.css';
+import './styles/lab-monitor.css';
 
 import { renderHome, bindHomeEvents } from './views/home.js';
 import { renderStudentLogin, bindStudentLoginEvents } from './views/student-login.js';
@@ -25,6 +28,9 @@ import { renderAssessmentLab, bindAssessmentLabEvents } from './views/assessment
 import { renderAssessmentCenter, bindAssessmentCenterEvents } from './views/assessment-center.js';
 import { renderAssessmentSession, bindAssessmentSessionEvents, ensureAssessmentSession, clearAssessmentSession } from './views/assessment-session.js';
 import { renderAssessmentResults, bindAssessmentResultsEvents } from './views/assessment-results.js';
+import { renderGradebook, bindGradebookEvents } from './views/gradebook.js';
+import { renderReportCard, bindReportCardEvents } from './views/report-card.js';
+import { renderLabMonitor, bindLabMonitorEvents, teardownLabMonitor } from './views/lab-monitor.js';
 import { getCurrentStudent, hydrateSettingsFromDB, isTeacherAuthenticated } from './engine/storage.js';
 import { initTheme } from './engine/theme.js';
 
@@ -82,7 +88,7 @@ async function renderRoute() {
     window.history.replaceState({}, '', '/teacher-login');
   }
 
-  if (currentPath === '/assessment-lab' && !isTeacherAuthenticated()) {
+  if ((currentPath === '/assessment-lab' || currentPath === '/lab-monitor') && !isTeacherAuthenticated()) {
     currentPath = '/teacher-login';
     window.history.replaceState({}, '', '/teacher-login');
   }
@@ -113,6 +119,7 @@ async function renderRoute() {
   if (currentPath !== '/dashboard') {
     teardownDashboardLiveUpdates();
   }
+  if (currentPath !== '/lab-monitor') teardownLabMonitor();
 
   if (appRoot.firstElementChild) {
     appRoot.firstElementChild.classList.add('view-exit');
@@ -173,6 +180,16 @@ async function renderRoute() {
   } else if (currentPath === '/assessment-lab') {
     html = await renderAssessmentLab();
     bindEvents = () => bindAssessmentLabEvents(navigate);
+  } else if (currentPath === '/lab-monitor') {
+    html = renderLabMonitor();
+    bindEvents = () => bindLabMonitorEvents(navigate);
+  } else if (currentPath === '/gradebook') {
+    html = await renderGradebook();
+    bindEvents = () => bindGradebookEvents(navigate);
+  } else if (currentPath === '/report-card' || currentPath.startsWith('/report-card/')) {
+    const studentId = currentPath.split('/')[2] || null;
+    html = await renderReportCard(studentId);
+    bindEvents = () => bindReportCardEvents(navigate, studentId);
   } else if (currentPath === '/dashboard') {
     html = await renderDashboard();
     bindEvents = () => bindDashboardEvents(navigate);
