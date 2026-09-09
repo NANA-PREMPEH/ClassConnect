@@ -6,7 +6,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'classconnect';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const SETTINGS_STORE = 'settings';
 const FEEDBACK_CACHE_STORE = 'feedbackCache';
 const DATA_CHANGE_EVENT = 'classconnect:datachange';
@@ -146,6 +146,24 @@ function ensureBaseStores(db, transaction = null) {
 
   if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
     db.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
+  }
+
+  if (!db.objectStoreNames.contains('customLessons')) {
+    const store = db.createObjectStore('customLessons', { keyPath: 'id', autoIncrement: true });
+    store.createIndex('strand', 'strand', { unique: false });
+  }
+  if (!db.objectStoreNames.contains('questionBank')) {
+    const store = db.createObjectStore('questionBank', { keyPath: 'id', autoIncrement: true });
+    store.createIndex('type', 'type', { unique: false });
+  }
+  if (!db.objectStoreNames.contains('users')) {
+    const store = db.createObjectStore('users', { keyPath: 'id', autoIncrement: true });
+    store.createIndex('username', 'username', { unique: true });
+    store.createIndex('role', 'role', { unique: false });
+  }
+  if (!db.objectStoreNames.contains('auditLog')) {
+    const store = db.createObjectStore('auditLog', { keyPath: 'id', autoIncrement: true });
+    store.createIndex('createdAt', 'createdAt', { unique: false });
   }
 }
 
@@ -848,9 +866,19 @@ export function setTeacherAuthenticated(authenticated = true) {
     TEACHER_SESSION_KEY,
     JSON.stringify({
       authenticated: true,
+      role: 'admin',
       updatedAt: new Date().toISOString()
     })
   );
+}
+
+export function getCurrentTeacher() {
+  try { return JSON.parse(sessionStorage.getItem(TEACHER_SESSION_KEY) || 'null'); } catch { return null; }
+}
+
+export function setTeacherSession(user) {
+  sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify({ authenticated: true, userId: user.id, username: user.username, name: user.name || user.username, role: user.role, updatedAt: new Date().toISOString() }));
+  setSetting('activeTeacher', user.username);
 }
 
 export function isTeacherAuthenticated() {
@@ -864,6 +892,91 @@ export function isTeacherAuthenticated() {
 
 export function clearTeacherAuthenticated() {
   sessionStorage.removeItem(TEACHER_SESSION_KEY);
+}
+
+// ==================== CMS, ROLES & AUDIT ====================
+
+export async function saveCustomLesson(lesson) {
+  const db = await getDB();
+  const payload = { ...lesson, updatedAt: new Date().toISOString(), createdAt: lesson.createdAt || new Date().toISOString() };
+  const id = lesson.id ? (await db.put('customLessons', payload), lesson.id) : await db.add('customLessons', payload);
+  const saved = { ...payload, id };
+  emitDataChange('customLessons', lesson.id ? 'update' : 'create', saved);
+  await addAuditLog('lesson.saved', { lessonId: id, title: payload.title });
+  return saved;
+}
+
+export async function getAllCustomLessons() { return (await getDB()).getAll('customLessons'); }
+
+export async function exportLessonPack() {
+  return { app: 'ClassConnect', type: 'ccpack', version: 1, exportedAt: new Date().toISOString(), lessons: await getAllCustomLessons(), questions: await getAllQuestionBankItems() };
+}
+
+export async function importLessonPack(pack) {
+  if (!pack || pack.app !== 'ClassConnect' || pack.type !== 'ccpack') throw new Error('This is not a ClassConnect lesson pack.');
+  const lessons = Array.isArray(pack.lessons) ? pack.lessons : [];
+  const questions = Array.isArray(pack.questions) ? pack.questions : [];
+  for (const lesson of lessons) { const { id, ...record } = lesson; await saveCustomLesson(record); }
+  for (const question of questions) { const { id, ...record } = question; await saveQuestionBankItem(record); }
+  await addAuditLog('lesson-pack.imported', { lessons: lessons.length, questions: questions.length });
+  return { lessons: lessons.length, questions: questions.length };
+}
+
+export async function saveQuestionBankItem(item) {
+  const db = await getDB();
+  const payload = { ...item, updatedAt: new Date().toISOString(), createdAt: item.createdAt || new Date().toISOString() };
+  const id = item.id ? (await db.put('questionBank', payload), item.id) : await db.add('questionBank', payload);
+  const saved = { ...payload, id };
+  emitDataChange('questionBank', item.id ? 'update' : 'create', saved);
+  await addAuditLog('question.saved', { questionId: id, type: payload.type });
+  return saved;
+}
+
+export async function getAllQuestionBankItems() { return (await getDB()).getAll('questionBank'); }
+
+export async function createUser(user) {
+  const db = await getDB();
+  const payload = { ...user, username: user.username.trim().toLowerCase(), role: user.role || 'teacher', createdAt: new Date().toISOString() };
+  const id = await db.add('users', payload);
+  const saved = { ...payload, id };
+  await addAuditLog('user.created', { userId: id, username: payload.username, role: payload.role });
+  return saved;
+}
+
+export async function authenticateUser(username, pin) {
+  const normalized = String(username || '').trim().toLowerCase();
+  const users = await getAllUsers();
+  return users.find((user) => user.username === normalized && user.pin === pin) || null;
+}
+
+export async function updateUser(id, changes) {
+  const db = await getDB();
+  const existing = await db.get('users', id);
+  if (!existing) throw new Error('User not found.');
+  const saved = { ...existing, ...changes, id, updatedAt: new Date().toISOString() };
+  await db.put('users', saved);
+  await addAuditLog('user.updated', { userId: id, role: saved.role });
+  return saved;
+}
+
+export async function deleteUser(id) {
+  const db = await getDB();
+  await db.delete('users', id);
+  await addAuditLog('user.deleted', { userId: id });
+}
+
+export async function getAllUsers() { return (await getDB()).getAll('users'); }
+
+export async function addAuditLog(action, detail = {}) {
+  const db = await getDB();
+  const id = await db.add('auditLog', { action, detail, actor: getSetting('activeTeacher') || 'teacher', createdAt: new Date().toISOString() });
+  emitDataChange('auditLog', 'create', { id, action });
+  return id;
+}
+
+export async function getAuditLog() {
+  const entries = await (await getDB()).getAll('auditLog');
+  return entries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 // ==================== EXPORT ====================
@@ -905,6 +1018,10 @@ const ALL_BACKUP_STORES = [
   'tutorThreads',
   'assessments',
   'assessmentSubmissions',
+  'customLessons',
+  'questionBank',
+  'users',
+  'auditLog',
   FEEDBACK_CACHE_STORE,
   SETTINGS_STORE
 ];

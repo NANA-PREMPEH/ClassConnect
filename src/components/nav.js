@@ -3,6 +3,8 @@
  */
 
 import { getCurrentTheme, toggleTheme } from '../engine/theme.js';
+import { getSetting } from '../engine/storage.js';
+import { saveAccessibilitySettings } from '../engine/speech.js';
 
 function renderThemeIcon(theme) {
   if (theme === 'light') {
@@ -79,6 +81,16 @@ export function renderNav(options = {}) {
               <span class="nav__status-text" id="status-text">${navigator.onLine ? 'Online' : 'Offline'}</span>
             </span>
             <div class="nav__toolbar">
+              <details class="nav__accessibility">
+                <summary class="btn btn--icon btn--ghost" aria-label="Accessibility settings" title="Accessibility settings">A</summary>
+                <div class="nav__accessibility-panel">
+                  <strong>Display support</strong>
+                  <label><input id="access-high-contrast" type="checkbox" ${getSetting('highContrast') === 'true' ? 'checked' : ''}> High contrast</label>
+                  <label><input id="access-dyslexia-font" type="checkbox" ${getSetting('dyslexiaFont') === 'true' ? 'checked' : ''}> Dyslexia-friendly font</label>
+                  <label>Text size <select id="access-font-scale"><option value="standard">Standard</option><option value="large" ${getSetting('fontScale') === 'large' ? 'selected' : ''}>Large</option><option value="extra-large" ${getSetting('fontScale') === 'extra-large' ? 'selected' : ''}>Extra large</option></select></label>
+                  <label>Speech speed <select id="access-speech-rate"><option value="0.8">Slow</option><option value="1" ${getSetting('speechRate') !== '0.8' && getSetting('speechRate') !== '1.2' ? 'selected' : ''}>Normal</option><option value="1.2" ${getSetting('speechRate') === '1.2' ? 'selected' : ''}>Fast</option></select></label>
+                </div>
+              </details>
               ${showThemeToggle ? renderThemeButton() : ''}
               ${showSettings ? `
                 <button class="btn btn--icon btn--ghost nav__settings-btn" id="nav-settings-btn" aria-label="Settings">
@@ -129,6 +141,14 @@ export function bindNavEvents(options = {}) {
       themeBtn.setAttribute('title', `Switch to ${nextTheme} theme`);
     });
   }
+
+  const saveAccessibility = () => saveAccessibilitySettings({
+    highContrast: document.getElementById('access-high-contrast')?.checked || false,
+    dyslexiaFont: document.getElementById('access-dyslexia-font')?.checked || false,
+    fontScale: document.getElementById('access-font-scale')?.value || 'standard',
+    speechRate: document.getElementById('access-speech-rate')?.value || '1'
+  });
+  ['access-high-contrast', 'access-dyslexia-font', 'access-font-scale', 'access-speech-rate'].forEach((id) => document.getElementById(id)?.addEventListener('change', saveAccessibility));
 
   const brand = document.getElementById('nav-brand');
   if (brand && onBrand) {

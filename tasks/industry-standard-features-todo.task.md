@@ -98,9 +98,11 @@
 ## Phase 3: Multi-PC Computer Lab Networking & Live Monitoring
 
 ### 3.1 Local Lab LAN Server Mode ("Host Mode")
-- [ ] **CLI / Dev Server Host Configuration (`vite.config.js`, `package.json`)**
-  - Add npm script: `npm run lab` with `--host 0.0.0.0` so all PCs on the local lab Wi-Fi/switch can access `http://<teacher-ip>:5173`.
-  - Display clear local IP address and QR code in the teacher dashboard header for lab setup.
+- [x] **CLI / Dev Server Host Configuration (`vite.config.js`, `package.json`)**
+  - Added `npm run lab` with `--host 0.0.0.0` so all PCs on the local lab Wi-Fi/switch can access `http://<teacher-ip>:5173`.
+  - Teacher starts a lab session from Live Lab Monitor and receives a copyable student join link.
+- [ ] **Dashboard IP / QR Provisioning**
+  - Display clear local IP address and an offline QR code in the teacher dashboard header for lab setup.
 - [ ] **Local Network Sync Protocol (`src/engine/storage.js`, `src/engine/lan-sync.js`)**
   - Optional WebSocket / HTTP lightweight sync endpoint for multi-computer labs so student PCs push quiz/assessment submissions straight to the teacher's host database.
 
@@ -113,10 +115,10 @@
   - Automatic parsing, verification, duplicate prevention, and real-time gradebook update.
 
 ### 3.3 Live Lab Classroom Monitor Grid ("Exam Control")
-- [ ] **Live Classroom Monitor Board (`src/views/lab-monitor.js`, `src/styles/lab-monitor.css`)**
+- [x] **Live Classroom Monitor Board (`src/views/lab-monitor.js`, `src/styles/lab-monitor.css`)**
   - Grid of live cards representing all active students/PCs in the lab.
   - Status tags: `Reading Lesson`, `Adaptive Quiz`, `Taking Assessment (Q5/10)`, `Completed`, `Idle >2m`.
-  - Real-time red warning banner if proctoring detects fullscreen exit or tab hiding.
+  - Real-time red warning banner if proctoring detects fullscreen exit or tab hiding during assessments.
 - [ ] **Synchronized Exam Broadcast**
   - Teacher clicks "Unlock Assessment [Title]" -> pushes unlock state to lab session.
   - "Lock All Screens" / "Force Submit All" buttons for exam time termination.
@@ -126,21 +128,23 @@
 ## Phase 4: CMS, Accessibility & Enterprise Polish
 
 ### 4.1 Visual Lesson & Question Bank CMS
-- [ ] **Lesson Authoring View (`src/views/lesson-editor.js`, `src/styles/editor.css`)**
-  - Form/WYSIWYG editor to create custom lessons (Title, Objectives, Key Terms, Body Markdown/HTML, Illustrations).
-  - Multi-strand curriculum hierarchy (Strand 1: Computing Systems, Strand 2: Productivity, Strand 3: Networks, Strand 4: Coding).
-- [ ] **Question Bank Editor (`src/views/question-editor.js`)**
-  - Add/edit multiple choice, true/false, fill-in-the-blank, and coding challenges.
-  - Bloom's taxonomy tags and IRT difficulty configuration (-3.0 to +3.0 theta).
+- [x] **Lesson Authoring View (`src/views/lesson-editor.js`, `src/styles/assessment.css`)**
+  - Local authoring form for title, subject, strand, objectives, key terms, and Markdown/HTML-compatible lesson body.
+- [ ] **CMS Illustration & Curriculum Delivery Integration**
+  - Add illustration upload/selection and surface custom lessons alongside the student curriculum.
+- [x] **Question Bank Editor (`src/views/question-editor.js`)**
+  - Local authoring form for MCQ, true/false, fill-in-the-blank, short-answer, and coding question records with Bloom tags and IRT difficulty.
+- [ ] **Question Bank Editing & Assessment Integration**
+  - Add saved-question editing and selection from the Assessment Lab.
 - [ ] **Lesson Pack (.ccpack) Exporter / Importer**
   - Share curriculum units across schools via zip archives.
 
 ### 4.2 Accessibility & Voice Synthesis
-- [ ] **Offline Text-to-Speech Engine (`src/engine/speech.js`)**
-  - Integrate browser Web Speech API (zero dependencies, completely offline).
-  - "Listen" button beside lesson paragraphs, key terms, and quiz question stems.
-  - Speed, pitch, and voice selection controls.
-- [ ] **Assistive Display Mode**
+- [x] **Offline Text-to-Speech Engine (`src/engine/speech.js`)**
+  - Integrated browser Web Speech API (zero dependencies) with lesson-level "Listen" / stop controls and speech-speed selection.
+- [ ] **Expanded Read-Aloud Coverage**
+  - Add individual controls beside lesson paragraphs, key terms, and quiz question stems, plus pitch and voice selection.
+- [x] **Assistive Display Mode**
   - Toggle for OpenDyslexic typeface.
   - High-contrast color theme for low-contrast CRT/LCD lab monitors.
   - Font size zoom controls (Standard, Large, Extra Large).

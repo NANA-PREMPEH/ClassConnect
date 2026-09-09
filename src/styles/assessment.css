@@ -193,6 +193,7 @@
   display: grid;
   gap: var(--space-3);
 }
+.cms-page { padding-top: var(--space-6); padding-bottom: var(--space-8); display: grid; gap: var(--space-5); }.cms-form { display:grid; gap: var(--space-3); }.cms-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:var(--space-3); }.cms-list { display:grid; gap:var(--space-3); }.cms-list article { display:grid; gap:var(--space-1); padding-bottom:var(--space-3); border-bottom:1px solid var(--border-color); }.cms-list span { color:var(--text-muted); font-size:var(--font-size-sm); }
 
 .assessment-session-form {
   display: grid;

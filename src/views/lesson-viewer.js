@@ -15,6 +15,7 @@ import {
   markLessonComplete
 } from '../engine/storage.js';
 import { buildStudentProfile } from '../engine/personalization.js';
+import { speak, stopSpeaking } from '../engine/speech.js';
 
 function renderLearningHub(profile, hasDiagnostic) {
   return `
@@ -259,6 +260,7 @@ export async function renderLessonDetail(lessonId) {
             <div class="lesson-header__objective">${objective}</div>
           `).join('')}
         </div>
+        <button class="btn btn--secondary btn--sm" id="btn-read-lesson">Listen to lesson</button>
       </div>
 
       <div class="lesson-content">
@@ -352,6 +354,14 @@ export function bindLessonDetailEvents(navigate, lessonId) {
   }
 
   const tutorBtn = document.getElementById('btn-ask-tutor');
+  const readBtn = document.getElementById('btn-read-lesson');
+  if (readBtn && lesson) {
+    readBtn.addEventListener('click', () => {
+      if (readBtn.dataset.reading === 'true') { stopSpeaking(); readBtn.dataset.reading = 'false'; readBtn.textContent = 'Listen to lesson'; return; }
+      speak(`${lesson.title}. ${lesson.objectives.join('. ')}. ${lesson.content}`);
+      readBtn.dataset.reading = 'true'; readBtn.textContent = 'Stop listening';
+    });
+  }
   if (tutorBtn) {
     tutorBtn.addEventListener('click', () => {
       navigate('/tutor');

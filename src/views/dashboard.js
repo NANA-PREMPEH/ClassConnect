@@ -610,6 +610,8 @@ function renderDashboardBody(snapshot) {
           <button class="btn btn--primary btn--sm" id="btn-open-gradebook">📊 Broadsheet Gradebook</button>
           <button class="btn btn--secondary btn--sm" id="btn-open-assessment-lab">Assessment Lab</button>
           <button class="btn btn--primary btn--sm" id="btn-open-lab-monitor">Live Lab Monitor</button>
+          <button class="btn btn--secondary btn--sm" id="btn-open-lesson-editor">Lesson CMS</button>
+          <button class="btn btn--secondary btn--sm" id="btn-open-question-editor">Question Bank</button>
           <button class="btn btn--ghost btn--sm" id="btn-export-csv">Export CSV</button>
         </div>
       </div>
@@ -638,6 +640,8 @@ function bindDashboardActionHandlers(navigate) {
   const exportBtn = document.getElementById('btn-export-csv');
   const assessmentLabBtn = document.getElementById('btn-open-assessment-lab');
   const labMonitorBtn = document.getElementById('btn-open-lab-monitor');
+  const lessonEditorBtn = document.getElementById('btn-open-lesson-editor');
+  const questionEditorBtn = document.getElementById('btn-open-question-editor');
   const refreshBtn = document.getElementById('btn-refresh-dashboard');
   const classFilterSelect = document.getElementById('class-filter-select');
   const manageClassesBtn = document.getElementById('btn-manage-classes');
@@ -659,6 +663,8 @@ function bindDashboardActionHandlers(navigate) {
     });
   }
   if (labMonitorBtn) labMonitorBtn.addEventListener('click', () => navigate('/lab-monitor'));
+  if (lessonEditorBtn) lessonEditorBtn.addEventListener('click', () => navigate('/lesson-editor'));
+  if (questionEditorBtn) questionEditorBtn.addEventListener('click', () => navigate('/question-editor'));
 
   const gradebookBtn = document.getElementById('btn-open-gradebook');
   if (gradebookBtn) {

@@ -31,8 +31,11 @@ import { renderAssessmentResults, bindAssessmentResultsEvents } from './views/as
 import { renderGradebook, bindGradebookEvents } from './views/gradebook.js';
 import { renderReportCard, bindReportCardEvents } from './views/report-card.js';
 import { renderLabMonitor, bindLabMonitorEvents, teardownLabMonitor } from './views/lab-monitor.js';
+import { renderLessonEditor, bindLessonEditorEvents } from './views/lesson-editor.js';
+import { renderQuestionEditor, bindQuestionEditorEvents } from './views/question-editor.js';
 import { getCurrentStudent, hydrateSettingsFromDB, isTeacherAuthenticated } from './engine/storage.js';
 import { initTheme } from './engine/theme.js';
+import { applyAccessibilitySettings } from './engine/speech.js';
 
 let currentPath = window.location.pathname;
 const appRoot = document.getElementById('app');
@@ -183,6 +186,12 @@ async function renderRoute() {
   } else if (currentPath === '/lab-monitor') {
     html = renderLabMonitor();
     bindEvents = () => bindLabMonitorEvents(navigate);
+  } else if (currentPath === '/lesson-editor') {
+    html = await renderLessonEditor();
+    bindEvents = () => bindLessonEditorEvents(navigate);
+  } else if (currentPath === '/question-editor') {
+    html = await renderQuestionEditor();
+    bindEvents = () => bindQuestionEditorEvents(navigate);
   } else if (currentPath === '/gradebook') {
     html = await renderGradebook();
     bindEvents = () => bindGradebookEvents(navigate);
@@ -218,6 +227,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     initTheme();
+    applyAccessibilitySettings();
     await renderRoute();
   }, loaderDelayMs);
 });
