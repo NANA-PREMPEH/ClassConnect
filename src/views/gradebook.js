@@ -5,6 +5,7 @@
  */
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
+import { renderStaffShell, bindStaffShell } from '../components/staff-shell.js';
 import {
   getAllClasses,
   getAllStudents,
@@ -12,14 +13,16 @@ import {
   getAllProgress,
   getAllDiagnostics,
   getAllAssessmentSubmissions,
-  downloadCSV
+  downloadCSV,
+  getStaffClassContext,
+  setStaffClassContext
 } from '../engine/storage.js';
 import {
   buildClassBroadsheet,
   exportBroadsheetAsCSV,
   DEFAULT_GRADEBOOK_WEIGHTS
 } from '../engine/gradebook.js';
-import { showToast } from '../components/ui.js';
+import { showModal, showToast } from '../components/ui.js';
 
 let currentClassId = 'all';
 let currentWeights = { ...DEFAULT_GRADEBOOK_WEIGHTS };
@@ -43,6 +46,8 @@ export async function renderGradebook() {
     getAllDiagnostics(),
     getAllAssessmentSubmissions()
   ]);
+  const context = getStaffClassContext();
+  if (currentClassId === 'all' && context.selectedClassId !== 'all') currentClassId = context.selectedClassId;
 
   cachedBroadsheet = buildClassBroadsheet(currentClassId, {
     classes,
@@ -56,9 +61,8 @@ export async function renderGradebook() {
 
   const { classInfo, statistics, weights, lessons: lessonList, students: rankedStudents } = cachedBroadsheet;
 
-  return `
-    ${renderNav({ title: 'Master Broadsheet Gradebook', showBack: true })}
-    <div class="container view-enter gradebook-page" style="padding-top: var(--space-6);">
+  const content = `
+    <div class="gradebook-page">
       
       <div class="gradebook-header">
         <div>
@@ -76,6 +80,10 @@ export async function renderGradebook() {
               </option>
             `).join('')}
           </select>
+          <select id="gradebook-term-select" class="input input--sm" aria-label="Academic term"><option>Current term</option><option>Term 1</option><option>Term 2</option><option>Term 3</option></select>
+          <select id="gradebook-subject-select" class="input input--sm" aria-label="Subject"><option>Computing</option></select>
+          <button class="btn btn--ghost btn--sm" id="btn-configure-weights">Weighting</button>
+          <button class="btn btn--ghost btn--sm" id="btn-print-gradebook">Print</button>
           <button class="btn btn--secondary btn--sm" id="btn-export-broadsheet-csv">📥 Export Broadsheet (CSV)</button>
         </div>
       </div>
@@ -187,19 +195,18 @@ export async function renderGradebook() {
         </table>
       </div>
 
-    </div>
-  `;
+    </div>`;
+  return renderStaffShell({ title: 'Gradebook & Reports', subtitle: 'GES-aligned terminal performance, weighting, ranking, exports, and report cards.', activePath: '/gradebook', content });
 }
 
 export function bindGradebookEvents(navigate) {
-  bindNavEvents({
-    onBack: () => navigate('/dashboard')
-  });
+  bindStaffShell(navigate);
 
   const classSelect = document.getElementById('gradebook-class-select');
   if (classSelect) {
     classSelect.addEventListener('change', async (e) => {
       currentClassId = e.target.value;
+      setStaffClassContext((await getAllClasses()), currentClassId);
       const html = await renderGradebook();
       const app = document.getElementById('app');
       if (app) {
@@ -234,6 +241,10 @@ export function bindGradebookEvents(navigate) {
   }
 
   const btnExport = document.getElementById('btn-export-broadsheet-csv');
+  document.getElementById('btn-print-gradebook')?.addEventListener('click', () => window.print());
+  document.getElementById('btn-configure-weights')?.addEventListener('click', () => {
+    showModal('Assessment weighting', `<div class="weights-form"><div class="weight-input-group"><label>SBA (Quizzes)</label><input type="number" id="modal-weight-sba" class="input" value="${currentWeights.sbaPercent}" min="0" max="100">%</div><div class="weight-input-group"><label>Diagnostic</label><input type="number" id="modal-weight-diagnostic" class="input" value="${currentWeights.diagnosticPercent}" min="0" max="100">%</div><div class="weight-input-group"><label>Terminal exam</label><input type="number" id="modal-weight-exam" class="input" value="${currentWeights.examPercent}" min="0" max="100">%</div></div>`, [{ label: 'Cancel', variant: 'btn--ghost' }, { label: 'Apply', variant: 'btn--primary', onClick: async () => { const sba = Number(document.getElementById('modal-weight-sba').value); const diagnostic = Number(document.getElementById('modal-weight-diagnostic').value); const exam = Number(document.getElementById('modal-weight-exam').value); if (sba + diagnostic + exam !== 100) { showToast('Weights must total 100%.', 'error'); return false; } currentWeights = { sbaPercent: sba, diagnosticPercent: diagnostic, examPercent: exam }; const html = await renderGradebook(); document.getElementById('app').innerHTML = html; bindGradebookEvents(navigate); return true; } }]);
+  });
   if (btnExport) {
     btnExport.addEventListener('click', () => {
       if (!cachedBroadsheet) return;

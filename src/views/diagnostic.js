@@ -8,6 +8,7 @@ import { renderProgressBar } from '../components/progress-bar.js';
 import { renderQuestionCard } from '../components/question-card.js';
 import { createDiagnosticSession } from '../engine/diagnostic.js';
 import { getCurrentStudent, saveDiagnosticResult } from '../engine/storage.js';
+import { bindReadAloudControls } from '../engine/speech.js';
 
 let activeDiagnosticSession = null;
 let currentQuestionData = null;
@@ -73,6 +74,7 @@ export function renderDiagnostic() {
 
 export function bindDiagnosticEvents(navigate, renderCurrentView) {
   bindNavEvents({ onBack: () => navigate('/lessons') });
+  bindReadAloudControls(document.querySelector('.diagnostic-page'));
 
   document.querySelectorAll('.option-btn').forEach((button) => {
     button.addEventListener('click', async (event) => {

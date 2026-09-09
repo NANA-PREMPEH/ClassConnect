@@ -9,7 +9,7 @@ import { showToast } from '../components/ui.js';
 import { createProctorSession } from '../engine/proctoring.js';
 import { gradeAssessmentSubmission } from '../engine/assessment-grading.js';
 import { analyzeAssessmentIntegrity } from '../engine/submission-analysis.js';
-import { publishLabStatus, startLabSync } from '../engine/lan-sync.js';
+import { getLabRoom, publishLabStatus, sendLabMessage, startLabSync } from '../engine/lan-sync.js';
 import {
   getAssessment,
   getAssessmentSubmissionsForStudent,
@@ -26,6 +26,7 @@ let timerId = null;
 let remainingSeconds = 0;
 let isSubmitting = false;
 let labSyncUnsubscribe = null;
+let labAssessmentUnlocked = false;
 
 function formatDuration(totalSeconds = 0) {
   const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
@@ -139,6 +140,7 @@ export async function ensureAssessmentSession(assessmentId) {
   activeAssessmentId = normalizedId;
   answerMap = new Map((activeAssessment?.questions || []).map((question) => [question.id, buildDefaultAnswer(question)]));
   assessmentStarted = false;
+  labAssessmentUnlocked = !getLabRoom();
   proctorSession = null;
   remainingSeconds = (activeAssessment?.durationMinutes || 20) * 60;
   stopTimer();
@@ -233,6 +235,11 @@ async function submitAssessment(navigate) {
       integrity,
       proctor: proctorSummary
     });
+    sendLabMessage('submission', {
+      studentId: student.id,
+      studentName: student.name,
+      submission: { ...saved, remoteSubmissionId: `${student.id}-${activeAssessment.id}-${saved.completedAt}` }
+    });
     publishLabStatus('Completed', { studentId: student.id, studentName: student.name, detail: `${activeAssessment.title} submitted`, alert: proctorSummary.label !== 'Low' });
 
     activeAssessment = null;
@@ -320,6 +327,7 @@ export function renderAssessmentSession() {
           </div>
 
           <button class="btn btn--primary btn--lg" id="btn-begin-assessment">Begin Secure Assessment</button>
+          ${getLabRoom() && !labAssessmentUnlocked ? '<p class="assessment-start-card__rule" id="lab-unlock-notice">Waiting for the teacher to unlock this lab assessment.</p>' : ''}
         </div>
       </div>
     `;
@@ -356,9 +364,20 @@ export function renderAssessmentSession() {
 export function bindAssessmentSessionEvents(navigate, renderCurrentView, assessmentId) {
   labSyncUnsubscribe?.();
   labSyncUnsubscribe = startLabSync((message) => {
+    if (message.type === 'control' && message.action === 'unlock-assessment') {
+      labAssessmentUnlocked = true;
+      const beginButton = document.getElementById('btn-begin-assessment');
+      if (beginButton) beginButton.disabled = false;
+      document.getElementById('lab-unlock-notice')?.remove();
+      showToast('Your teacher unlocked the assessment.', 'success');
+    }
     if (message.type === 'control' && message.action === 'lock-screens') {
       document.querySelectorAll('input, textarea, button').forEach((element) => { if (!element.closest('#main-nav')) element.disabled = true; });
       showToast('The teacher has locked this assessment screen.', 'warning');
+    }
+    if (message.type === 'control' && message.action === 'unlock-assessment') {
+      document.querySelectorAll('input, textarea, button').forEach((element) => { if (!element.closest('#main-nav')) element.disabled = false; });
+      showToast('The teacher has unlocked this assessment screen.', 'success');
     }
     if (message.type === 'control' && message.action === 'force-submit') void submitAssessment(navigate);
   });
@@ -369,6 +388,7 @@ export function bindAssessmentSessionEvents(navigate, renderCurrentView, assessm
   if (!assessmentStarted) {
     const beginButton = document.getElementById('btn-begin-assessment');
     if (beginButton) {
+      if (getLabRoom() && !labAssessmentUnlocked) beginButton.disabled = true;
       beginButton.addEventListener('click', async () => {
         await beginAssessment(renderCurrentView);
       });

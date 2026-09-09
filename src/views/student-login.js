@@ -1,133 +1,17 @@
-/**
- * ClassConnect — Student Login View
- * Simple PIN-based login/creation for shared devices
- */
-
+/** ClassConnect — student sign-in for shared devices. */
 import { renderNav, bindNavEvents } from '../components/nav.js';
-import {
-  createStudent,
-  findStudentByIndexOrNameAndPin,
-  setCurrentStudent,
-  getAllStudents,
-  getAllClasses,
-  getLatestDiagnosticForStudent
-} from '../engine/storage.js';
+import { createStudent, findStudentByIndexOrNameAndPin, setCurrentStudent, getAllStudents, getAllClasses, getLatestDiagnosticForStudent } from '../engine/storage.js';
 import { showToast } from '../components/ui.js';
 
 export function renderStudentLogin() {
-  return `
-    ${renderNav({ title: 'ClassConnect', showBack: true })}
-    <div class="container container--narrow view-enter" style="padding-top: var(--space-8); padding-bottom: var(--space-12);">
-      <div class="card card--glass">
-        <div style="text-align: center; margin-bottom: var(--space-8);">
-          <h2 class="card__title" style="font-size: var(--font-size-2xl);">Student Login</h2>
-          <p class="card__subtitle">Enter your name or student index number and 4-digit PIN.</p>
-        </div>
-
-        <form id="login-form" style="display: flex; flex-direction: column; gap: var(--space-6);">
-          <div class="input-group">
-            <label for="student-name">Full Name or Student Index Number</label>
-            <input type="text" id="student-name" class="input" placeholder="e.g., Kwame Mensah or GES-B7-0101" required minlength="2" autocomplete="off">
-          </div>
-          <div class="input-group">
-            <label for="student-pin">4-Digit PIN (Keep this secret!)</label>
-            <input type="password" id="student-pin" class="input input--pin" placeholder="••••" required pattern="[0-9]{4}" maxlength="4" inputmode="numeric">
-          </div>
-          <button type="submit" class="btn btn--primary btn--lg btn--full">Continue to Your Learning Path</button>
-        </form>
-
-        <div id="recent-students" hidden>
-          <div class="divider"></div>
-          <h3 style="font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: var(--space-4);">Recent Students</h3>
-          <div id="recent-student-list" style="display: flex; flex-wrap: wrap; gap: var(--space-3);"></div>
-        </div>
-      </div>
-    </div>
-    <div class="bg-pattern"></div>
-  `;
+  return `${renderNav({ title: 'ClassConnect', showBack: true })}<main class="auth-page view-enter"><section class="auth-layout" aria-labelledby="student-login-title"><aside class="auth-intro"><div class="auth-brand"><span class="auth-brand__mark" aria-hidden="true">⌁</span><span class="auth-brand__name">ClassConnect</span></div><div class="auth-intro__content"><p class="auth-kicker">Learner workspace</p><h1 class="auth-intro__title">Build confidence, one lesson at a time.</h1><p class="auth-intro__text">Pick up where you left off and get learning support tailored to your progress.</p></div><div class="auth-benefits"><p class="auth-benefit"><span class="auth-benefit__icon" aria-hidden="true">✓</span>Your saved progress stays on this device.</p><p class="auth-benefit"><span class="auth-benefit__icon" aria-hidden="true">✓</span>Your PIN keeps your learning path private.</p></div></aside><div class="auth-panel"><header class="auth-panel__header"><p class="auth-panel__eyebrow">Student sign in</p><h1 class="auth-panel__title" id="student-login-title">Welcome back</h1><p class="auth-panel__subtitle">Enter your details to continue to your learning path.</p></header><form id="login-form" class="auth-form"><div class="input-group"><label for="student-name">Full name or student index number</label><input type="text" id="student-name" class="input" placeholder="e.g., Kwame Mensah or GES-B7-0101" required minlength="2" autocomplete="off"></div><div class="input-group"><label for="student-pin">4-digit PIN</label><input type="password" id="student-pin" class="input input--pin" placeholder="••••" required pattern="[0-9]{4}" maxlength="4" inputmode="numeric" autocomplete="current-password" aria-describedby="student-pin-hint"><p class="auth-form__hint" id="student-pin-hint">Keep your PIN private. Ask your teacher if you need help signing in.</p></div><button type="submit" class="btn btn--primary btn--lg btn--full auth-form__submit">Continue to learning</button></form><div id="recent-students" class="auth-recent" hidden><h2 class="auth-recent__heading">Recent learners</h2><div id="recent-student-list" class="auth-recent__list"></div></div><p class="auth-panel__footer"><strong>Using a shared device?</strong> Sign out when you finish so the next learner can access their own work.</p></div></section></main><div class="bg-pattern"></div>`;
 }
 
 export function bindStudentLoginEvents(navigate) {
-  bindNavEvents({
-    onBack: () => navigate('/')
-  });
-
-  const form = document.getElementById('login-form');
-  const nameInput = document.getElementById('student-name');
-  const pinInput = document.getElementById('student-pin');
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const identifier = nameInput.value.trim();
-    const pin = pinInput.value;
-
-    if (!identifier || pin.length !== 4) {
-      showToast('Please enter your name or index number and a 4-digit PIN.', 'error');
-      return;
-    }
-
-    try {
-      // 1. Try finding student by Index Number or Name + PIN
-      let student = await findStudentByIndexOrNameAndPin(identifier, pin);
-
-      // 2. If not found, create new student using the entered identifier as name
-      if (!student) {
-        student = await createStudent(identifier, pin);
-      }
-
-      setCurrentStudent(student);
-      const diagnostic = await getLatestDiagnosticForStudent(student.id);
-      navigate(diagnostic ? '/lessons' : '/diagnostic');
-    } catch (err) {
-      console.error('[ClassConnect] Student login error:', err);
-      let message = 'Login failed. Please try again.';
-
-      if (err?.message === 'The local ClassConnect database is busy.') {
-        message = 'Your saved learning data is busy. Close other ClassConnect tabs, then try again.';
-      } else if (
-        err?.name === 'VersionError' ||
-        err?.message?.includes('version') ||
-        err?.message?.includes('blocked')
-      ) {
-        message = 'A database update is needed. Please close all other ClassConnect tabs and try again.';
-      }
-
-      showToast(message, 'error');
-    }
-  });
-
-  const recentStudents = document.getElementById('recent-students');
-  const recentStudentList = document.getElementById('recent-student-list');
-
-  recentStudentList.addEventListener('click', (event) => {
-    const button = event.target.closest('.student-quick-select');
-    if (button) {
-      nameInput.value = button.dataset.identifier || button.dataset.name;
-      pinInput.focus();
-    }
-  });
-
-  // Recent students are a convenience only.
-  void Promise.all([getAllStudents(), getAllClasses()])
-    .then(([students, classes]) => {
-      if (!students.length) return;
-
-      students.slice(0, 6).forEach((student) => {
-        const cls = classes.find((c) => c.id === student.classId);
-        const classLabel = cls ? ` [${cls.stream || cls.name}]` : '';
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'badge badge--neutral student-quick-select';
-        button.dataset.name = student.name;
-        button.dataset.identifier = student.indexNumber || student.name;
-        button.style.cssText = 'padding: var(--space-2) var(--space-3); cursor: pointer; border: 1px solid var(--color-slate-600);';
-        button.textContent = `${student.name}${classLabel}`;
-        recentStudentList.append(button);
-      });
-
-      recentStudents.hidden = false;
-    })
-    .catch((error) => {
-      console.warn('Recent students could not be loaded.', error);
-    });
+  bindNavEvents({ onBack: () => navigate('/') });
+  const form = document.getElementById('login-form'); const nameInput = document.getElementById('student-name'); const pinInput = document.getElementById('student-pin');
+  form.addEventListener('submit', async (e) => { e.preventDefault(); const identifier = nameInput.value.trim(); const pin = pinInput.value; if (!identifier || pin.length !== 4) { showToast('Please enter your name or index number and a 4-digit PIN.', 'error'); return; } try { let student = await findStudentByIndexOrNameAndPin(identifier, pin); if (!student) student = await createStudent(identifier, pin); setCurrentStudent(student); const diagnostic = await getLatestDiagnosticForStudent(student.id); navigate(diagnostic ? '/lessons' : '/diagnostic'); } catch (err) { console.error('[ClassConnect] Student login error:', err); let message = 'Login failed. Please try again.'; if (err?.message === 'The local ClassConnect database is busy.') message = 'Your saved learning data is busy. Close other ClassConnect tabs, then try again.'; else if (err?.name === 'VersionError' || err?.message?.includes('version') || err?.message?.includes('blocked')) message = 'A database update is needed. Please close all other ClassConnect tabs and try again.'; showToast(message, 'error'); } });
+  const recentStudents = document.getElementById('recent-students'); const recentStudentList = document.getElementById('recent-student-list');
+  recentStudentList.addEventListener('click', (event) => { const button = event.target.closest('.student-quick-select'); if (button) { nameInput.value = button.dataset.identifier || button.dataset.name; pinInput.focus(); } });
+  void Promise.all([getAllStudents(), getAllClasses()]).then(([students, classes]) => { if (!students.length) return; students.slice(0, 6).forEach((student) => { const cls = classes.find((c) => c.id === student.classId); const classLabel = cls ? ` [${cls.stream || cls.name}]` : ''; const button = document.createElement('button'); button.type = 'button'; button.className = 'badge badge--neutral student-quick-select'; button.dataset.name = student.name; button.dataset.identifier = student.indexNumber || student.name; button.style.cssText = 'padding: var(--space-2) var(--space-3); cursor: pointer; border: 1px solid var(--color-slate-600);'; button.textContent = `${student.name}${classLabel}`; recentStudentList.append(button); }); recentStudents.hidden = false; }).catch((error) => console.warn('Recent students could not be loaded.', error));
 }

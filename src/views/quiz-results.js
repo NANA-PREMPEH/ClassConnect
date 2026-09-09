@@ -12,6 +12,7 @@ import {
   getLatestDiagnosticForStudent,
   getProgressForStudent
 } from '../engine/storage.js';
+import { createSubmissionToken, downloadSubmissionToken } from '../engine/submission-token.js';
 import { generateAllFeedback } from '../engine/ai-feedback.js';
 import { buildStudentProfile } from '../engine/personalization.js';
 
@@ -93,7 +94,8 @@ export async function renderQuizResults(resultId) {
       <div class="quiz-results__actions">
         <button class="btn btn--primary btn--lg" id="btn-next-lesson">Continue Personalized Path</button>
         <button class="btn btn--accent" id="btn-open-tutor">Ask AI Tutor</button>
-        <button class="btn btn--ghost" id="btn-retry-quiz">Retry Quiz</button>
+         <button class="btn btn--ghost" id="btn-retry-quiz">Retry Quiz</button>
+         <button class="btn btn--secondary" id="btn-save-quiz-usb">Save Submission to USB</button>
       </div>
     </div>
   `;
@@ -105,6 +107,7 @@ export function bindQuizResultsEvents(navigate, resultId) {
   const nextBtn = document.getElementById('btn-next-lesson');
   const tutorBtn = document.getElementById('btn-open-tutor');
   const retryBtn = document.getElementById('btn-retry-quiz');
+  const usbBtn = document.getElementById('btn-save-quiz-usb');
 
   getAllQuizResults().then(async (results) => {
     const result = results.find((entry) => entry.id === Number.parseInt(resultId, 10));
@@ -138,6 +141,10 @@ export function bindQuizResultsEvents(navigate, resultId) {
         navigate(`/quiz/${result.lessonId}`);
       });
     }
+    if (usbBtn) usbBtn.addEventListener('click', async () => {
+      try { downloadSubmissionToken(await createSubmissionToken(student, { kind: 'quiz', record: result }), student.indexNumber); }
+      catch (error) { alert(error.message); }
+    });
 
     renderReviewList(result.responses);
   });

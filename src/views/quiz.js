@@ -10,6 +10,8 @@ import { renderFeedbackCard } from '../components/feedback-card.js';
 import { createQuizSession } from '../engine/adaptive-quiz.js';
 import { generateFeedback } from '../engine/ai-feedback.js';
 import { saveQuizResult, getCurrentStudent } from '../engine/storage.js';
+import { bindReadAloudControls } from '../engine/speech.js';
+import { sendLabMessage } from '../engine/lan-sync.js';
 
 let activeSession = null;
 let activeLessonId = null;
@@ -256,6 +258,7 @@ export function bindQuizEvents(navigate, renderCurrentView, lessonId) {
   }
 
   startQuestionTimer();
+  bindReadAloudControls(document.querySelector('.quiz-page'));
   const options = document.querySelectorAll('.option-btn');
   options.forEach((button) => {
     button.addEventListener('click', (event) => {
@@ -328,6 +331,12 @@ async function handleQuizComplete(navigate, lessonId) {
     studentId: student.id,
     lessonId: Number.parseInt(lessonId, 10),
     ...results
+  });
+
+  sendLabMessage('quiz-result', {
+    studentId: student.id,
+    studentName: student.name,
+    result: { ...saved, remoteResultId: `${student.id}-${saved.lessonId}-${saved.completedAt}` }
   });
 
   navigate(`/quiz-results/${saved.id}`);

@@ -78,6 +78,11 @@
   border: 1px solid rgba(99, 102, 241, 0.1);
 }
 
+.question-card__stem .read-aloud-button {
+  float: right;
+  margin-top: 2px;
+}
+
 /* --- Options --- */
 .question-options {
   display: grid;

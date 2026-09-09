@@ -4,15 +4,19 @@
  */
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
+import { renderStaffShell, bindStaffShell } from '../components/staff-shell.js';
 import { showModal, showToast } from '../components/ui.js';
-import { getAssessmentBlueprintOptions, generateAssessment } from '../engine/assessment-generator.js';
+import { buildAssessmentFromQuestionBank, getAssessmentBlueprintOptions, generateAssessment } from '../engine/assessment-generator.js';
 import {
   getAllAssessments,
   getAllAssessmentSubmissions,
+  getAllQuestionBankItems,
   getAllStudents,
   saveAssessment
 } from '../engine/storage.js';
 import { buildAssessmentOverview } from '../engine/item-analysis.js';
+
+let assessmentTab = 'published';
 
 function countByType(questions, type) {
   return questions.filter((question) => question.type === type).length;
@@ -29,6 +33,11 @@ function renderLessonChecklist() {
       </span>
     </label>
   `).join('');
+}
+
+function renderQuestionBankChecklist(items) {
+  if (!items.length) return '<p class="insight-empty">No saved questions yet. Create them in Question Bank.</p>';
+  return items.map((item) => `<label class="assessment-check"><input type="checkbox" name="question-bank-id" value="${item.id}"><span class="assessment-check__body"><span class="assessment-check__title">${escapeHTML(item.prompt)}</span><span class="assessment-check__meta">${escapeHTML(item.type)} - ${escapeHTML(item.bloom || 'Knowledge')}${item.lessonId ? ` - Lesson ${item.lessonId}` : ''}</span></span></label>`).join('');
 }
 
 function renderAssessmentCards(assessments, submissions) {
@@ -55,6 +64,7 @@ function renderAssessmentCards(assessments, submissions) {
             <p class="assessment-admin-card__meta">${assessment.durationMinutes} min | ${assessment.questions.length} questions | ${assessment.objectiveCoverage.length} objectives covered</p>
           </div>
           <div class="assessment-admin-card__badges">
+            <span class="badge badge--success">${escapeHTML((assessment.status || 'open').toUpperCase())}</span>
             <span class="badge badge--primary">${countByType(assessment.questions, 'mcq')} MCQ</span>
             <span class="badge badge--accent">${countByType(assessment.questions, 'short')} Short</span>
             <span class="badge badge--warning">${countByType(assessment.questions, 'code')} Code</span>
@@ -190,10 +200,10 @@ export async function renderAssessmentLab() {
     .slice()
     .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
   const submissions = await getAllAssessmentSubmissions();
+  const questionBank = await getAllQuestionBankItems();
 
-  return `
-    ${renderNav({ title: 'Assessment Lab', showBack: true, showSettings: false, showLogout: false })}
-    <div class="container view-enter assessment-lab-page" style="padding-top: var(--space-6);">
+  const content = `
+    <div class="assessment-lab-page">
       <div class="card card--glass assessment-hero">
         <div class="assessment-hero__eyebrow">AI-powered assessment platform</div>
         <h1 class="assessment-hero__title">Generate, grade, protect, and analyze assessments</h1>
@@ -237,6 +247,11 @@ export async function renderAssessmentLab() {
               </div>
             </div>
 
+            <div class="input-group">
+              <label>Saved Question Bank <span class="assessment-builder-card__subtitle">optional - uses selected questions instead of generating new ones</span></label>
+              <div class="assessment-checklist assessment-checklist--compact">${renderQuestionBankChecklist(questionBank)}</div>
+            </div>
+
             <div class="assessment-builder-form__actions">
               <button class="btn btn--primary btn--lg" type="submit">Generate and Publish Assessment</button>
             </div>
@@ -248,24 +263,29 @@ export async function renderAssessmentLab() {
             <h2 class="assessment-builder-card__title">Published Assessments</h2>
             <p class="assessment-builder-card__subtitle">Students will see these in the local Assessment Center on this device.</p>
           </div>
+          <div class="workspace-tabs" role="tablist"><button class="workspace-tab ${assessmentTab === 'published' ? 'workspace-tab--active' : ''}" data-assessment-tab="published">Published</button><button class="workspace-tab ${assessmentTab === 'submissions' ? 'workspace-tab--active' : ''}" data-assessment-tab="submissions">Submissions</button><button class="workspace-tab ${assessmentTab === 'analysis' ? 'workspace-tab--active' : ''}" data-assessment-tab="analysis">Analysis</button></div>
           <div class="assessment-admin-list">
-            ${renderAssessmentCards(assessments, submissions)}
+            ${assessmentTab === 'published' ? renderAssessmentCards(assessments, submissions) : assessmentTab === 'submissions' ? `<div class="card assessment-admin-card"><h3 class="assessment-admin-card__title">Submission activity</h3><p class="assessment-admin-card__meta">${submissions.length} total submissions across ${assessments.length} published assessments.</p></div>` : `<div class="card assessment-admin-card"><h3 class="assessment-admin-card__title">Assessment analysis</h3><p class="assessment-admin-card__meta">Open a published assessment below to inspect item performance and integrity flags.</p>${renderAssessmentCards(assessments, submissions)}</div>`}
           </div>
         </div>
       </div>
-    </div>
-  `;
+    </div>`;
+  return renderStaffShell({ title: 'Assessments', subtitle: 'Build, publish, monitor, and analyze assessments in one focused workspace.', activePath: '/assessment-lab', content });
 }
 
 export function bindAssessmentLabEvents(navigate) {
-  bindNavEvents({ onBack: () => navigate('/dashboard') });
+  bindStaffShell(navigate);
 
   const form = document.getElementById('assessment-builder-form');
+  document.querySelectorAll('[data-assessment-tab]').forEach((button) => button.addEventListener('click', () => { assessmentTab = button.dataset.assessmentTab; void navigate('/assessment-lab'); }));
   if (form) {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
 
       const lessonIds = [...document.querySelectorAll('input[name="lesson-id"]:checked')]
+        .map((input) => Number.parseInt(input.value, 10))
+        .filter(Boolean);
+      const questionIds = [...document.querySelectorAll('input[name="question-bank-id"]:checked')]
         .map((input) => Number.parseInt(input.value, 10))
         .filter(Boolean);
 
@@ -282,12 +302,12 @@ export function bindAssessmentLabEvents(navigate) {
         + Number.parseInt(config.shortAnswerCount, 10)
         + Number.parseInt(config.codingCount, 10);
 
-      if (lessonIds.length === 0) {
+      if (lessonIds.length === 0 && questionIds.length === 0) {
         showToast('Choose at least one lesson for the blueprint.', 'error');
         return;
       }
 
-      if (totalQuestions <= 0) {
+      if (totalQuestions <= 0 && questionIds.length === 0) {
         showToast('Add at least one question to the assessment.', 'error');
         return;
       }
@@ -299,7 +319,9 @@ export function bindAssessmentLabEvents(navigate) {
       }
 
       try {
-        const assessment = await generateAssessment(config);
+        const assessment = questionIds.length
+          ? buildAssessmentFromQuestionBank({ ...config, questionIds }, await getAllQuestionBankItems())
+          : await generateAssessment(config);
         await saveAssessment(assessment);
         showToast(`Assessment published with ${assessment.questions.length} questions.`, 'success');
         await navigate('/assessment-lab');

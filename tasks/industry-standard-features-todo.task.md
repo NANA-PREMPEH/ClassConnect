@@ -101,16 +101,16 @@
 - [x] **CLI / Dev Server Host Configuration (`vite.config.js`, `package.json`)**
   - Added `npm run lab` with `--host 0.0.0.0` so all PCs on the local lab Wi-Fi/switch can access `http://<teacher-ip>:5173`.
   - Teacher starts a lab session from Live Lab Monitor and receives a copyable student join link.
-- [ ] **Dashboard IP / QR Provisioning**
+- [x] **Dashboard IP / QR Provisioning**
   - Display clear local IP address and an offline QR code in the teacher dashboard header for lab setup.
-- [ ] **Local Network Sync Protocol (`src/engine/storage.js`, `src/engine/lan-sync.js`)**
-  - Optional WebSocket / HTTP lightweight sync endpoint for multi-computer labs so student PCs push quiz/assessment submissions straight to the teacher's host database.
+- [x] **Local Network Sync Protocol (`src/engine/storage.js`, `src/engine/lan-sync.js`)**
+  - Local Vite WebSocket relay now carries assessment submissions to the teacher monitor, with duplicate protection and audit records.
 
 ### 3.2 Air-Gapped "Sneakernet" Token Submission (For Labs without Network)
-- [ ] **Encrypted Submission File Exporter (`src/views/assessment-session.js`, `src/views/quiz-results.js`)**
+- [x] **Encrypted Submission File Exporter (`src/views/assessment-session.js`, `src/views/quiz-results.js`)**
   - If offline and not connected to a lab host, student can click "Save Submission to USB".
   - Generates compact, tamper-resistant `.ccsub` file containing encrypted responses, proctor events, and timing.
-- [ ] **Batch Submission Collector in Dashboard (`src/views/dashboard.js`)**
+- [x] **Batch Submission Collector in Dashboard (`src/views/dashboard.js`)**
   - Teacher drags & drops folder of `.ccsub` files from USB drive into dashboard.
   - Automatic parsing, verification, duplicate prevention, and real-time gradebook update.
 
@@ -119,9 +119,8 @@
   - Grid of live cards representing all active students/PCs in the lab.
   - Status tags: `Reading Lesson`, `Adaptive Quiz`, `Taking Assessment (Q5/10)`, `Completed`, `Idle >2m`.
   - Real-time red warning banner if proctoring detects fullscreen exit or tab hiding during assessments.
-- [ ] **Synchronized Exam Broadcast**
-  - Teacher clicks "Unlock Assessment [Title]" -> pushes unlock state to lab session.
-  - "Lock All Screens" / "Force Submit All" buttons for exam time termination.
+- [x] **Synchronized Exam Broadcast**
+  - Teacher unlock, lock-all, and force-submit broadcasts are applied to student assessment sessions over the local lab relay.
 
 ---
 
@@ -130,30 +129,30 @@
 ### 4.1 Visual Lesson & Question Bank CMS
 - [x] **Lesson Authoring View (`src/views/lesson-editor.js`, `src/styles/assessment.css`)**
   - Local authoring form for title, subject, strand, objectives, key terms, and Markdown/HTML-compatible lesson body.
-- [ ] **CMS Illustration & Curriculum Delivery Integration**
+- [x] **CMS Illustration & Curriculum Delivery Integration**
   - Add illustration upload/selection and surface custom lessons alongside the student curriculum.
 - [x] **Question Bank Editor (`src/views/question-editor.js`)**
   - Local authoring form for MCQ, true/false, fill-in-the-blank, short-answer, and coding question records with Bloom tags and IRT difficulty.
-- [ ] **Question Bank Editing & Assessment Integration**
+- [x] **Question Bank Editing & Assessment Integration**
   - Add saved-question editing and selection from the Assessment Lab.
-- [ ] **Lesson Pack (.ccpack) Exporter / Importer**
+- [x] **Lesson Pack (.ccpack) Exporter / Importer**
   - Share curriculum units across schools via zip archives.
 
 ### 4.2 Accessibility & Voice Synthesis
 - [x] **Offline Text-to-Speech Engine (`src/engine/speech.js`)**
   - Integrated browser Web Speech API (zero dependencies) with lesson-level "Listen" / stop controls and speech-speed selection.
-- [ ] **Expanded Read-Aloud Coverage**
-  - Add individual controls beside lesson paragraphs, key terms, and quiz question stems, plus pitch and voice selection.
+- [x] **Expanded Read-Aloud Coverage**
+  - Individual controls beside lesson paragraphs, key terms, and quiz/diagnostic question stems, plus persisted pitch and device-voice selection.
 - [x] **Assistive Display Mode**
   - Toggle for OpenDyslexic typeface.
   - High-contrast color theme for low-contrast CRT/LCD lab monitors.
   - Font size zoom controls (Standard, Large, Extra Large).
 
 ### 4.3 Multi-Teacher & Role-Based Access Control (RBAC)
-- [ ] **User Role Management (`src/engine/storage.js`)**
+- [x] **User Role Management (`src/engine/storage.js`)**
   - Roles: `Admin/Headmaster`, `Subject Teacher`, `Lab Technician/Invigilator`.
   - Separate login credentials and permission matrix.
-- [ ] **System Audit Log (`src/views/dashboard.js`)**
+- [x] **System Audit Log (`src/views/dashboard.js`)**
   - Chronological log of grade modifications, assessment releases, and student record exports.
 
 ---
@@ -189,8 +188,8 @@ ClassConnect/
 
 ## Validation & Verification Checklist
 
-- [ ] `npm run build` succeeds with zero errors.
-- [ ] Upgraded IndexedDB preserves all existing student profiles, progress, and quiz histories.
-- [ ] CSV import correctly ingests sample roster of 40 students with valid class tags.
-- [ ] Report card view prints cleanly to standard A4 paper format without cutoff.
-- [ ] One-click backup file can be exported and successfully restored on a fresh browser instance.
+- [x] `npm run build` succeeds with zero errors.
+- [x] Upgraded IndexedDB preserves all existing student profiles, progress, and quiz histories.
+- [x] CSV import correctly ingests sample roster of 40 students with valid class tags.
+- [x] Report card view prints cleanly to standard A4 paper format without cutoff.
+- [x] One-click backup file can be exported and successfully restored on a fresh browser instance.

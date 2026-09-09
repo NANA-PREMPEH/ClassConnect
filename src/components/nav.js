@@ -4,7 +4,15 @@
 
 import { getCurrentTheme, toggleTheme } from '../engine/theme.js';
 import { getSetting } from '../engine/storage.js';
-import { saveAccessibilitySettings } from '../engine/speech.js';
+import { getSpeechVoices, saveAccessibilitySettings } from '../engine/speech.js';
+
+const esc = (value = '') => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+
+function renderVoiceOptions() {
+  const selectedVoice = getSetting('speechVoice');
+  const voices = getSpeechVoices();
+  return `<option value="">Device default</option>${voices.map((voice) => `<option value="${esc(voice.name)}" ${voice.name === selectedVoice ? 'selected' : ''}>${esc(`${voice.name} (${voice.lang})`)}</option>`).join('')}`;
+}
 
 function renderThemeIcon(theme) {
   if (theme === 'light') {
@@ -40,7 +48,7 @@ export function renderNav(options = {}) {
     backLabel = 'Back',
     studentName = null,
     showSettings = false,
-    showLogout = false,
+    showLogout = Boolean(studentName && ['My learning', 'Lesson library', 'My progress', 'Review', 'Lesson'].includes(title)),
     logoutLabel = 'Sign out',
     showThemeToggle = true
   } = options;
@@ -89,6 +97,8 @@ export function renderNav(options = {}) {
                   <label><input id="access-dyslexia-font" type="checkbox" ${getSetting('dyslexiaFont') === 'true' ? 'checked' : ''}> Dyslexia-friendly font</label>
                   <label>Text size <select id="access-font-scale"><option value="standard">Standard</option><option value="large" ${getSetting('fontScale') === 'large' ? 'selected' : ''}>Large</option><option value="extra-large" ${getSetting('fontScale') === 'extra-large' ? 'selected' : ''}>Extra large</option></select></label>
                   <label>Speech speed <select id="access-speech-rate"><option value="0.8">Slow</option><option value="1" ${getSetting('speechRate') !== '0.8' && getSetting('speechRate') !== '1.2' ? 'selected' : ''}>Normal</option><option value="1.2" ${getSetting('speechRate') === '1.2' ? 'selected' : ''}>Fast</option></select></label>
+                  <label>Speech pitch <select id="access-speech-pitch"><option value="0.8" ${getSetting('speechPitch') === '0.8' ? 'selected' : ''}>Low</option><option value="1" ${getSetting('speechPitch') !== '0.8' && getSetting('speechPitch') !== '1.2' ? 'selected' : ''}>Normal</option><option value="1.2" ${getSetting('speechPitch') === '1.2' ? 'selected' : ''}>High</option></select></label>
+                  <label>Voice <select id="access-speech-voice">${renderVoiceOptions()}</select></label>
                 </div>
               </details>
               ${showThemeToggle ? renderThemeButton() : ''}
@@ -146,9 +156,20 @@ export function bindNavEvents(options = {}) {
     highContrast: document.getElementById('access-high-contrast')?.checked || false,
     dyslexiaFont: document.getElementById('access-dyslexia-font')?.checked || false,
     fontScale: document.getElementById('access-font-scale')?.value || 'standard',
-    speechRate: document.getElementById('access-speech-rate')?.value || '1'
+    speechRate: document.getElementById('access-speech-rate')?.value || '1',
+    speechPitch: document.getElementById('access-speech-pitch')?.value || '1',
+    speechVoice: document.getElementById('access-speech-voice')?.value || ''
   });
-  ['access-high-contrast', 'access-dyslexia-font', 'access-font-scale', 'access-speech-rate'].forEach((id) => document.getElementById(id)?.addEventListener('change', saveAccessibility));
+  ['access-high-contrast', 'access-dyslexia-font', 'access-font-scale', 'access-speech-rate', 'access-speech-pitch', 'access-speech-voice'].forEach((id) => document.getElementById(id)?.addEventListener('change', saveAccessibility));
+
+  const voiceSelect = document.getElementById('access-speech-voice');
+  if (voiceSelect && 'speechSynthesis' in window) {
+    window.speechSynthesis.addEventListener('voiceschanged', () => {
+      const selectedVoice = getSetting('speechVoice');
+      voiceSelect.innerHTML = renderVoiceOptions();
+      voiceSelect.value = selectedVoice;
+    }, { once: true });
+  }
 
   const brand = document.getElementById('nav-brand');
   if (brand && onBrand) {

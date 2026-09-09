@@ -10,6 +10,7 @@ import {
   getAllAssessmentSubmissions,
   getCurrentStudent
 } from '../engine/storage.js';
+import { createSubmissionToken, downloadSubmissionToken } from '../engine/submission-token.js';
 
 function escapeHTML(value = '') {
   return value
@@ -123,6 +124,7 @@ export async function renderAssessmentResults(submissionId) {
       <div class="quiz-results__actions">
         <button class="btn btn--primary btn--lg" id="btn-back-to-center">Back to Assessment Center</button>
         <button class="btn btn--ghost" id="btn-retake-assessment">Retake Assessment</button>
+        <button class="btn btn--secondary" id="btn-save-assessment-usb">Save Submission to USB</button>
       </div>
     </div>
   `;
@@ -133,6 +135,7 @@ export function bindAssessmentResultsEvents(navigate, submissionId) {
 
   const backButton = document.getElementById('btn-back-to-center');
   const retakeButton = document.getElementById('btn-retake-assessment');
+  const usbButton = document.getElementById('btn-save-assessment-usb');
 
   getAllAssessmentSubmissions().then((submissions) => {
     const submission = submissions.find((entry) => entry.id === Number.parseInt(submissionId, 10));
@@ -145,5 +148,10 @@ export function bindAssessmentResultsEvents(navigate, submissionId) {
     if (retakeButton) {
       retakeButton.addEventListener('click', () => navigate(`/assessment/${submission.assessmentId}`));
     }
+    if (usbButton) usbButton.addEventListener('click', async () => {
+      const student = getCurrentStudent();
+      try { downloadSubmissionToken(await createSubmissionToken(student, { kind: 'assessment', record: submission }), student.indexNumber); }
+      catch (error) { alert(error.message); }
+    });
   });
 }

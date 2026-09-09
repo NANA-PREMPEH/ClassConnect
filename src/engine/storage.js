@@ -6,14 +6,42 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'classconnect';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const SETTINGS_STORE = 'settings';
 const FEEDBACK_CACHE_STORE = 'feedbackCache';
 const DATA_CHANGE_EVENT = 'classconnect:datachange';
 const DATA_SYNC_CHANNEL = 'classconnect-data-sync';
 const TEACHER_SESSION_KEY = 'cc_teacherAuthenticated';
 const CURRENT_STUDENT_KEY = 'cc_currentStudent';
+const STAFF_CLASS_CONTEXT_KEY = 'cc_staffClassContext';
 const LEGACY_SETTING_KEYS = ['apiKey', 'teacherPin', 'theme'];
+
+export const USER_ROLES = Object.freeze({
+  ADMIN: 'admin',
+  TEACHER: 'teacher',
+  INVIGILATOR: 'invigilator'
+});
+
+export const ROLE_LABELS = Object.freeze({
+  [USER_ROLES.ADMIN]: 'Administrator / Headmaster',
+  [USER_ROLES.TEACHER]: 'Subject Teacher',
+  [USER_ROLES.INVIGILATOR]: 'Lab Technician / Invigilator'
+});
+
+const ROLE_PERMISSIONS = Object.freeze({
+  [USER_ROLES.ADMIN]: ['dashboard', 'classes.manage', 'roster.manage', 'gradebook', 'assessment.manage', 'lab.monitor', 'cms.manage', 'data.export', 'backup.manage', 'users.manage', 'audit.view'],
+  [USER_ROLES.TEACHER]: ['dashboard', 'roster.manage', 'gradebook', 'assessment.manage', 'cms.manage'],
+  [USER_ROLES.INVIGILATOR]: ['lab.monitor']
+});
+
+export function hasPermission(permission, teacher = getCurrentTeacher()) {
+  return !!teacher?.authenticated && (ROLE_PERMISSIONS[teacher.role] || []).includes(permission);
+}
+
+export function getAccessibleClassIds(teacher = getCurrentTeacher()) {
+  if (!teacher || teacher.role === USER_ROLES.ADMIN) return null;
+  return Array.isArray(teacher.classIds) ? teacher.classIds.map(Number) : [];
+}
 
 let dbPromise = null;
 let dataSyncChannel = null;
@@ -515,6 +543,7 @@ export async function updateStudent(id, updates) {
   };
   await db.put('students', payload);
   emitDataChange('students', 'update', payload);
+  await addAuditLog(updates.pin ? 'student-pin.reset' : 'student-record.updated', { studentId: id, fields: Object.keys(updates) });
   return payload;
 }
 
@@ -617,7 +646,7 @@ export async function markLessonComplete(studentId, lessonId) {
   const alreadyDone = existing.find((entry) => entry.lessonId === lessonId);
   if (alreadyDone) return alreadyDone;
 
-  const completedAt = new Date().toISOString();
+  const completedAt = result.completedAt || new Date().toISOString();
   const id = await db.add('progress', {
     studentId,
     lessonId,
@@ -744,11 +773,13 @@ export async function saveAssessment(assessment) {
   const db = await getDB();
   const payload = {
     ...assessment,
+    status: assessment.status || 'open',
     createdAt: assessment.createdAt || new Date().toISOString()
   };
   const id = await db.add('assessments', payload);
   const saved = { ...payload, id };
   emitDataChange('assessments', 'create', saved);
+  await addAuditLog('assessment.released', { assessmentId: id, title: saved.title });
   return saved;
 }
 
@@ -877,7 +908,7 @@ export function getCurrentTeacher() {
 }
 
 export function setTeacherSession(user) {
-  sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify({ authenticated: true, userId: user.id, username: user.username, name: user.name || user.username, role: user.role, updatedAt: new Date().toISOString() }));
+  sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify({ authenticated: true, userId: user.id, username: user.username, name: user.name || user.username, role: user.role, classIds: user.classIds || [], updatedAt: new Date().toISOString() }));
   setSetting('activeTeacher', user.username);
 }
 
@@ -892,6 +923,14 @@ export function isTeacherAuthenticated() {
 
 export function clearTeacherAuthenticated() {
   sessionStorage.removeItem(TEACHER_SESSION_KEY);
+}
+
+export function setStaffClassContext(classes = [], selectedClassId = 'all') {
+  sessionStorage.setItem(STAFF_CLASS_CONTEXT_KEY, JSON.stringify({ classes: classes.map((entry) => ({ id: entry.id, name: entry.name })), selectedClassId: String(selectedClassId) }));
+}
+
+export function getStaffClassContext() {
+  try { return JSON.parse(sessionStorage.getItem(STAFF_CLASS_CONTEXT_KEY) || '{"classes":[],"selectedClassId":"all"}'); } catch { return { classes: [], selectedClassId: 'all' }; }
 }
 
 // ==================== CMS, ROLES & AUDIT ====================
@@ -935,8 +974,13 @@ export async function saveQuestionBankItem(item) {
 export async function getAllQuestionBankItems() { return (await getDB()).getAll('questionBank'); }
 
 export async function createUser(user) {
+  const role = Object.values(USER_ROLES).includes(user.role) ? user.role : USER_ROLES.TEACHER;
+  const username = String(user.username || '').trim().toLowerCase();
+  const pin = String(user.pin || '').trim();
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw new Error('Username must use 3-40 letters, numbers, dots, dashes, or underscores.');
+  if (!/^\d{4,8}$/.test(pin)) throw new Error('Account PIN must contain 4 to 8 digits.');
   const db = await getDB();
-  const payload = { ...user, username: user.username.trim().toLowerCase(), role: user.role || 'teacher', createdAt: new Date().toISOString() };
+  const payload = { ...user, username, pin, role, classIds: Array.isArray(user.classIds) ? user.classIds.map(Number).filter(Number.isFinite) : [], failedAttempts: 0, lockedUntil: null, createdAt: new Date().toISOString() };
   const id = await db.add('users', payload);
   const saved = { ...payload, id };
   await addAuditLog('user.created', { userId: id, username: payload.username, role: payload.role });
@@ -945,15 +989,30 @@ export async function createUser(user) {
 
 export async function authenticateUser(username, pin) {
   const normalized = String(username || '').trim().toLowerCase();
-  const users = await getAllUsers();
-  return users.find((user) => user.username === normalized && user.pin === pin) || null;
+  const db = await getDB();
+  const user = await db.getFromIndex('users', 'username', normalized);
+  if (!user) return { user: null, error: 'Invalid username or PIN.' };
+  if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) return { user: null, error: `Account is locked until ${new Date(user.lockedUntil).toLocaleTimeString()}.` };
+  if (user.pin !== String(pin || '').trim()) {
+    const failedAttempts = (user.failedAttempts || 0) + 1;
+    const lockedUntil = failedAttempts >= 5 ? new Date(Date.now() + 5 * 60 * 1000).toISOString() : null;
+    await db.put('users', { ...user, failedAttempts: lockedUntil ? 0 : failedAttempts, lockedUntil, updatedAt: new Date().toISOString() });
+    await addAuditLog('user.login_failed', { userId: user.id, username: user.username, locked: !!lockedUntil });
+    return { user: null, error: lockedUntil ? 'Too many failed attempts. Account locked for 5 minutes.' : 'Invalid username or PIN.' };
+  }
+  const saved = { ...user, failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date().toISOString() };
+  await db.put('users', saved);
+  await addAuditLog('user.login', { userId: user.id, username: user.username });
+  return { user: saved, error: null };
 }
 
 export async function updateUser(id, changes) {
   const db = await getDB();
   const existing = await db.get('users', id);
   if (!existing) throw new Error('User not found.');
-  const saved = { ...existing, ...changes, id, updatedAt: new Date().toISOString() };
+  const role = changes.role === undefined ? existing.role : changes.role;
+  if (!Object.values(USER_ROLES).includes(role)) throw new Error('Invalid user role.');
+  const saved = { ...existing, ...changes, role, classIds: Array.isArray(changes.classIds) ? changes.classIds.map(Number).filter(Number.isFinite) : existing.classIds || [], id, updatedAt: new Date().toISOString() };
   await db.put('users', saved);
   await addAuditLog('user.updated', { userId: id, role: saved.role });
   return saved;
@@ -961,11 +1020,27 @@ export async function updateUser(id, changes) {
 
 export async function deleteUser(id) {
   const db = await getDB();
+  const user = await db.get('users', id);
+  if (user?.role === USER_ROLES.ADMIN) {
+    const admins = (await db.getAllFromIndex('users', 'role', USER_ROLES.ADMIN));
+    if (admins.length <= 1) throw new Error('Keep at least one administrator account.');
+  }
   await db.delete('users', id);
   await addAuditLog('user.deleted', { userId: id });
 }
 
 export async function getAllUsers() { return (await getDB()).getAll('users'); }
+
+// Smoothly migrates devices that used the original single teacher PIN. The
+// legacy PIN becomes an administrator account on first RBAC sign-in.
+export async function provisionLegacyAdmin() {
+  const users = await getAllUsers();
+  if (users.length) return users;
+  const legacyPin = getTeacherPin();
+  if (!legacyPin || !/^\d{4}$/.test(legacyPin)) return users;
+  await createUser({ username: 'admin', name: 'School Administrator', pin: legacyPin, role: USER_ROLES.ADMIN });
+  return getAllUsers();
+}
 
 export async function addAuditLog(action, detail = {}) {
   const db = await getDB();
@@ -994,6 +1069,7 @@ export async function exportAllDataAsCSV() {
     csv += `"${name}",${result.lessonId},${result.score},${result.totalQuestions},${result.theta?.toFixed(2) || 'N/A'},${result.level || 'N/A'},"${result.completedAt}",${totalTimeSeconds}\n`;
   }
 
+  await addAuditLog('student-records.exported', { format: 'csv', studentCount: students.length });
   return csv;
 }
 
@@ -1055,6 +1131,7 @@ export async function downloadFullSchoolBackup() {
   link.download = `classconnect_school_backup_${dateStr}.json`;
   link.click();
   URL.revokeObjectURL(url);
+  await addAuditLog('school-backup.exported', { format: 'json' });
   return payload;
 }
 

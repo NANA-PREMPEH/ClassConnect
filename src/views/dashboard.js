@@ -4,6 +4,7 @@
  */
 
 import { renderNav, bindNavEvents } from '../components/nav.js';
+import { renderStaffShell, bindStaffShell } from '../components/staff-shell.js';
 import { renderStatCard } from '../components/stat-card.js';
 import { showModal, showToast } from '../components/ui.js';
 import {
@@ -29,12 +30,25 @@ import {
   getTeacherPin,
   setApiKeyAsync,
   setTeacherPinAsync,
-  subscribeToDataChanges
+  subscribeToDataChanges,
+  getCurrentTeacher,
+  getAccessibleClassIds,
+  getStaffClassContext,
+  setStaffClassContext,
+  getAllUsers,
+  saveAssessmentSubmission,
+  saveQuizResult,
+  getAuditLog,
+  createUser,
+  USER_ROLES,
+  ROLE_LABELS,
+  hasPermission
 } from '../engine/storage.js';
 import { lessons } from '../data/lessons.js';
 import { buildStudentProfile } from '../engine/personalization.js';
 import { ensureChartJS } from '../engine/chart-loader.js';
 import { parseRosterCSV, downloadSampleRosterCSV } from '../engine/roster-importer.js';
+import { openSubmissionToken } from '../engine/submission-token.js';
 
 const DASHBOARD_REFRESH_INTERVAL_MS = 30000;
 
@@ -51,6 +65,8 @@ let dashboardRefreshQueued = false;
 let activeDashboardNavigate = null;
 let selectedClassId = 'all';
 let rosterSearchQuery = '';
+let dashboardWorkspace = 'overview';
+let learnerFilters = { status: 'all', gender: 'all', risk: 'all', participation: 'all' };
 
 function escapeHTML(value = '') {
   return String(value)
@@ -344,15 +360,21 @@ async function loadDashboardSnapshot() {
     getAllAssessmentSubmissions()
   ]);
 
-  const classesWithCounts = allClasses.map((c) => ({
+  const accessibleClassIds = getAccessibleClassIds();
+  const visibleClasses = accessibleClassIds === null ? allClasses : allClasses.filter((entry) => accessibleClassIds.includes(Number(entry.id)));
+  const classContext = getStaffClassContext();
+  if (selectedClassId === 'all' && classContext.selectedClassId !== 'all') selectedClassId = classContext.selectedClassId;
+  if (selectedClassId !== 'all' && !visibleClasses.some((entry) => String(entry.id) === String(selectedClassId))) selectedClassId = 'all';
+  const classesWithCounts = visibleClasses.map((c) => ({
     ...c,
     studentCount: allStudents.filter((s) => s.classId === c.id).length
   }));
 
   // Filter students based on selectedClassId
+  const scopedStudents = accessibleClassIds === null ? allStudents : allStudents.filter((entry) => accessibleClassIds.includes(Number(entry.classId)));
   const students = selectedClassId === 'all'
-    ? allStudents
-    : allStudents.filter((s) => String(s.classId) === String(selectedClassId));
+    ? scopedStudents
+    : scopedStudents.filter((s) => String(s.classId) === String(selectedClassId));
 
   const filteredStudentIds = new Set(students.map((s) => s.id));
 
@@ -382,8 +404,11 @@ async function loadDashboardSnapshot() {
   );
 
   dashboardSnapshot.classes = classesWithCounts;
+  dashboardSnapshot.auditEntries = (await getAuditLog()).slice(0, 8);
+  setStaffClassContext(visibleClasses, selectedClassId);
   dashboardSnapshot.allStudents = allStudents;
   dashboardSnapshot.selectedClassId = selectedClassId;
+  dashboardSnapshot.currentTeacher = getCurrentTeacher();
   dashboardLastUpdatedAt = new Date().toISOString();
 
   return dashboardSnapshot;
@@ -431,8 +456,16 @@ function renderStudentRoster(snapshot) {
         (s.indexNumber && s.indexNumber.toLowerCase().includes(query))
       )
     : snapshot.students;
+  const filteredByAttributes = filteredStudents.filter((student) => {
+    const profile = snapshot.studentProfiles.find((entry) => entry.student.id === student.id)?.profile;
+    const attempts = snapshot.results.filter((entry) => entry.studentId === student.id).length;
+    return (learnerFilters.status === 'all' || (student.status || 'active') === learnerFilters.status)
+      && (learnerFilters.gender === 'all' || (student.gender || 'unspecified') === learnerFilters.gender)
+      && (learnerFilters.risk === 'all' || profile?.risk?.badge === learnerFilters.risk)
+      && (learnerFilters.participation === 'all' || (learnerFilters.participation === 'started' ? attempts > 0 : attempts === 0));
+  });
 
-  if (!filteredStudents.length) {
+  if (!filteredByAttributes.length) {
     return `
       <div class="empty-state dashboard-empty">
         <h3 class="empty-state__title">No Matching Learners</h3>
@@ -446,6 +479,7 @@ function renderStudentRoster(snapshot) {
       <table class="student-table">
         <thead>
           <tr>
+            <th><input type="checkbox" id="select-all-learners" aria-label="Select all visible learners"></th>
             <th>Index #</th>
             <th>Name</th>
             <th>Class / Stream</th>
@@ -458,7 +492,7 @@ function renderStudentRoster(snapshot) {
           </tr>
         </thead>
         <tbody>
-          ${filteredStudents.map((student) => {
+          ${filteredByAttributes.map((student) => {
             const studentResults = snapshot.results
               .filter((result) => result.studentId === student.id)
               .sort((left, right) => new Date(right.completedAt) - new Date(left.completedAt));
@@ -470,6 +504,7 @@ function renderStudentRoster(snapshot) {
 
             return `
               <tr class="student-row" data-id="${student.id}">
+                <td><input type="checkbox" class="learner-select" value="${student.id}" aria-label="Select ${escapeHTML(student.name)}"></td>
                 <td><code style="font-size: var(--font-size-xs);">${escapeHTML(student.indexNumber || `GES-B7-${student.id}`)}</code></td>
                 <td class="student-table__name">${escapeHTML(student.name)}</td>
                 <td><span class="badge badge--neutral">${escapeHTML(className)}</span></td>
@@ -479,8 +514,10 @@ function renderStudentRoster(snapshot) {
                 <td class="student-table__score">${latest ? `${Math.round((latest.score / latest.totalQuestions) * 100)}%` : '-'}</td>
                 <td><span class="badge badge--${risk?.badge || 'neutral'}">${risk?.label || 'No Data'}</span></td>
                 <td style="text-align: right; white-space: nowrap;" onclick="event.stopPropagation();">
+                  <button class="btn btn--ghost btn--xs btn-quick-profile" data-id="${student.id}" title="Open learner profile">Profile</button>
                   <button class="btn btn--ghost btn--xs btn-quick-report-card" data-id="${student.id}" title="View Terminal Report Card">Report Card</button>
                   <button class="btn btn--ghost btn--xs btn-quick-reset-pin" data-id="${student.id}" title="Reset 4-digit PIN">Reset PIN</button>
+                  <button class="btn btn--ghost btn--xs btn-quick-edit-student" data-id="${student.id}" title="Edit or transfer learner">Edit</button>
                 </td>
               </tr>
             `;
@@ -492,7 +529,11 @@ function renderStudentRoster(snapshot) {
 }
 
 function renderDashboardBody(snapshot) {
+  return dashboardWorkspace === 'learners' ? renderLearnersBody(snapshot) : renderOverviewBody(snapshot);
+  /* Legacy full-page dashboard retained below as a reference while its
+     capabilities are delivered through separate staff workspaces. */
   const { summary } = snapshot;
+  const can = (permission) => hasPermission(permission, snapshot.currentTeacher);
 
   return `
     <div class="dashboard-header">
@@ -511,7 +552,7 @@ function renderDashboardBody(snapshot) {
                 </option>
               `).join('')}
             </select>
-            <button class="btn btn--secondary btn--sm" id="btn-manage-classes">Classes</button>
+            ${can('classes.manage') ? '<button class="btn btn--secondary btn--sm" id="btn-manage-classes">Classes</button>' : ''}
           </div>
           <div class="dashboard-live-pill">
             <span class="dashboard-live-pill__dot"></span>
@@ -605,14 +646,14 @@ function renderDashboardBody(snapshot) {
           <p class="dashboard-header__subtitle">Manage learners, view continuous assessment broadsheets, print report cards, or reset PINs.</p>
         </div>
         <div class="export-area" style="margin-top: 0; display: flex; gap: var(--space-2); flex-wrap: wrap;">
-          <button class="btn btn--secondary btn--sm" id="btn-import-roster">Import Roster (CSV)</button>
-          <button class="btn btn--secondary btn--sm" id="btn-print-slips">Print Login Slips</button>
+          ${can('roster.manage') ? '<button class="btn btn--secondary btn--sm" id="btn-import-roster">Import Roster (CSV)</button><button class="btn btn--secondary btn--sm" id="btn-print-slips">Print Login Slips</button><button class="btn btn--secondary btn--sm" id="btn-collect-submissions">Collect USB Submissions</button>' : ''}
           <button class="btn btn--primary btn--sm" id="btn-open-gradebook">📊 Broadsheet Gradebook</button>
-          <button class="btn btn--secondary btn--sm" id="btn-open-assessment-lab">Assessment Lab</button>
-          <button class="btn btn--primary btn--sm" id="btn-open-lab-monitor">Live Lab Monitor</button>
-          <button class="btn btn--secondary btn--sm" id="btn-open-lesson-editor">Lesson CMS</button>
-          <button class="btn btn--secondary btn--sm" id="btn-open-question-editor">Question Bank</button>
-          <button class="btn btn--ghost btn--sm" id="btn-export-csv">Export CSV</button>
+          ${can('assessment.manage') ? '<button class="btn btn--secondary btn--sm" id="btn-open-assessment-lab">Assessment Lab</button>' : ''}
+          ${can('lab.monitor') ? '<button class="btn btn--primary btn--sm" id="btn-open-lab-monitor">Live Lab Monitor</button>' : ''}
+          ${can('cms.manage') ? '<button class="btn btn--secondary btn--sm" id="btn-open-lesson-editor">Lesson CMS</button><button class="btn btn--secondary btn--sm" id="btn-open-question-editor">Question Bank</button>' : ''}
+          ${can('data.export') ? '<button class="btn btn--ghost btn--sm" id="btn-export-csv">Export CSV</button>' : ''}
+          ${can('users.manage') ? '<button class="btn btn--secondary btn--sm" id="btn-manage-users">Staff accounts</button>' : ''}
+          ${can('audit.view') ? '<button class="btn btn--ghost btn--sm" id="btn-view-audit-log">Audit log</button>' : ''}
         </div>
       </div>
 
@@ -627,6 +668,28 @@ function renderDashboardBody(snapshot) {
   `;
 }
 
+function renderOverviewBody(snapshot) {
+  const { summary } = snapshot;
+  const can = (permission) => hasPermission(permission, snapshot.currentTeacher);
+  const actions = [
+    can('roster.manage') && ['Classes & Learners', 'Find learners, manage rosters, issue PINs.', '/students'],
+    can('assessment.manage') && ['Assessments', 'Create, publish, and review assessment activity.', '/assessment-lab'],
+    can('gradebook') && ['Gradebook & Reports', 'Review terminal marks and report cards.', '/gradebook'],
+    can('cms.manage') && ['Curriculum', 'Author lessons and maintain the question bank.', '/lesson-editor'],
+    can('lab.monitor') && ['Lab Monitor', 'Monitor active assessment sessions.', '/lab-monitor'],
+    can('users.manage') && ['Administration', 'Staff, classes, backups, and audit records.', '/admin']
+  ].filter(Boolean);
+  return `<div class="dashboard-header"><div class="dashboard-header__top"><div><h2 class="dashboard-header__title">School overview</h2><p class="dashboard-header__subtitle">The most important learning signals and next actions for your current access scope.</p></div><div class="dashboard-header__actions"><select id="overview-period" class="input input--sm" aria-label="Overview time period"><option value="term">This term</option><option value="today">Today</option></select><button class="btn btn--ghost btn--sm" id="btn-refresh-dashboard">Refresh</button></div></div><div class="dashboard-live-bar"><div class="dashboard-live-bar__item"><strong>Last updated:</strong> <span id="dashboard-live-updated">${formatTimeStamp(dashboardLastUpdatedAt)}</span></div><div class="dashboard-live-bar__item" id="dashboard-live-status-text"><strong>Live sync:</strong> Local school data is up to date.</div></div></div>
+    <div class="stat-grid">${renderStatCard('Students', summary.totalStudents, 'Learners in scope', 'primary', `${snapshot.results.length} quiz records`)}${renderStatCard('Average', `${summary.averageScore}%`, 'Average score', 'accent', 'Latest quiz per learner')}${renderStatCard('Support', summary.studentsAtRisk, 'Needs attention', summary.studentsAtRisk ? 'danger' : 'success', 'Risk score 60+')}${renderStatCard('Assess', summary.totalAssessments, 'Published assessments', 'primary', `${summary.totalAssessmentSubmissions} submissions`)}</div>
+    <section><div class="staff-section-heading"><div><h2>Quick actions</h2><p>Open a focused workspace instead of managing everything here.</p></div></div><div class="workspace-card-grid">${actions.map(([title, description, route]) => `<button class="workspace-action-card" data-workspace-route="${route}"><strong>${title}</strong><span>${description}</span></button>`).join('')}</div></section>
+    <div class="dashboard-panels"><div class="card dashboard-panel"><h3 class="chart-card__title">Needs attention</h3><p class="chart-card__subtitle">Learners who would benefit most from a timely follow-up.</p><div class="intervention-list">${snapshot.interventionQueue.slice(0, 5).map((entry) => `<button class="intervention-item intervention-item--button" data-learner-profile="${entry.student.id}"><div><div class="intervention-item__name">${escapeHTML(entry.student.name)}</div><div class="intervention-item__meta">${escapeHTML(entry.profile.risk.reasons.join(' · '))}</div></div><span class="badge badge--${entry.profile.risk.badge}">Risk ${entry.profile.risk.score}</span></button>`).join('') || '<div class="insight-empty">No learners are currently flagged.</div>'}</div></div>${renderRecentActivityFeed(snapshot)}</div><details class="card learning-insights"><summary>Learning insights <span>Expand charts and misconception patterns</span></summary><div class="charts-section"><div class="card chart-card"><h3 class="chart-card__title">Average score by lesson</h3><div class="chart-card__canvas-wrap"><canvas id="chart-scores"></canvas></div></div><div class="card chart-card"><h3 class="chart-card__title">Ability level distribution</h3><div class="chart-card__canvas-wrap"><canvas id="chart-levels"></canvas></div></div></div><div class="card chart-card"><h3 class="chart-card__title">Most commonly missed questions</h3><div class="chart-card__canvas-wrap chart-card__canvas-wrap--tall"><canvas id="chart-misconceptions"></canvas></div></div></details><section class="card dashboard-panel"><h3 class="chart-card__title">Recent changes</h3><div class="activity-feed">${snapshot.auditEntries.map((entry) => `<div class="activity-item"><div class="activity-item__top"><span class="badge badge--neutral">${escapeHTML(entry.action)}</span><span class="activity-item__time">${formatTimeStamp(entry.createdAt)}</span></div><div class="activity-item__meta">${escapeHTML(entry.actor || 'system')}</div></div>`).join('') || '<div class="insight-empty">No recent administrative changes.</div>'}</div></section>`;
+}
+
+function renderLearnersBody(snapshot) {
+  const canExport = hasPermission('data.export', snapshot.currentTeacher);
+  return `<div class="dashboard-header"><div class="dashboard-header__top"><div><h2 class="dashboard-header__title">Classes & learners</h2><p class="dashboard-header__subtitle">Search, support, and manage learners in your permitted classes.</p></div><div class="dashboard-header__actions"><select id="class-filter-select" class="select-class" aria-label="Filter learners by class"><option value="all">All permitted classes (${snapshot.classes.length})</option>${snapshot.classes.map((entry) => `<option value="${entry.id}" ${String(snapshot.selectedClassId) === String(entry.id) ? 'selected' : ''}>${escapeHTML(entry.name)} (${entry.studentCount})</option>`).join('')}</select><button class="btn btn--ghost btn--sm" id="btn-refresh-dashboard">Refresh</button></div></div></div><section class="class-directory"><h3>My classes</h3><div class="class-directory__grid">${snapshot.classes.map((entry) => `<button class="class-directory__card" data-class-directory-id="${entry.id}"><strong>${escapeHTML(entry.name)}</strong><span>${entry.studentCount} learners · ${escapeHTML(entry.term || 'Current term')}</span></button>`).join('') || '<p class="insight-empty">No class assignments are available.</p>'}</div></section><section class="student-section"><div class="student-section__header"><div><h3 class="student-section__title">Learner roster</h3><p class="dashboard-header__subtitle">Open a learner to view their history, reset access, transfer them, or issue a report card.</p></div><div class="export-area"><button class="btn btn--secondary btn--sm" id="btn-import-roster">Import roster</button><button class="btn btn--secondary btn--sm" id="btn-print-slips">Print login slips</button>${canExport ? '<button class="btn btn--ghost btn--sm" id="btn-export-csv">Export data</button>' : ''}</div></div><div class="roster-filter-bar"><input type="search" id="roster-search-input" class="input input--sm roster-search-input" placeholder="Search by learner name or index number" value="${escapeHTML(rosterSearchQuery)}"><div class="learner-filter-chips"><select class="input input--sm" data-learner-filter="status"><option value="all">All statuses</option><option value="active" ${learnerFilters.status === 'active' ? 'selected' : ''}>Active</option><option value="transferred" ${learnerFilters.status === 'transferred' ? 'selected' : ''}>Transferred</option></select><select class="input input--sm" data-learner-filter="gender"><option value="all">All genders</option><option value="male">Male</option><option value="female">Female</option></select><select class="input input--sm" data-learner-filter="risk"><option value="all">All risk levels</option><option value="danger">High risk</option><option value="warning">Watch</option><option value="success">On track</option></select><select class="input input--sm" data-learner-filter="participation"><option value="all">Any participation</option><option value="started">Started work</option><option value="not-started">Not started</option></select></div></div><div id="roster-table-container">${renderStudentRoster(snapshot)}</div></section>`;
+}
+
 function isDashboardMounted() {
   return !!document.getElementById('dashboard-live-root');
 }
@@ -634,6 +697,41 @@ function isDashboardMounted() {
 function destroyCharts() {
   dashboardCharts.forEach((chart) => chart.destroy());
   dashboardCharts = [];
+}
+
+async function collectSubmissionFiles(files) {
+  const students = await getAllStudents();
+  const existingQuiz = await getAllQuizResults();
+  const existingAssessments = await getAllAssessmentSubmissions();
+  let imported = 0;
+  const failures = [];
+  for (const file of [...files].filter((entry) => entry.name.toLowerCase().endsWith('.ccsub'))) {
+    try {
+      const { student, payload } = await openSubmissionToken(file, students);
+      const record = payload.submission?.record;
+      if (!record) throw new Error('No submission record found.');
+      if (payload.submission.kind === 'quiz') {
+        if (existingQuiz.some((entry) => entry.studentId === student.id && entry.lessonId === record.lessonId && entry.completedAt === record.completedAt)) continue;
+        const { id, studentId, ...clean } = record;
+        await saveQuizResult({ ...clean, studentId: student.id, completedAt: record.completedAt });
+      } else if (payload.submission.kind === 'assessment') {
+        if (existingAssessments.some((entry) => entry.studentId === student.id && entry.assessmentId === record.assessmentId && entry.completedAt === record.completedAt)) continue;
+        const { id, studentId, ...clean } = record;
+        await saveAssessmentSubmission({ ...clean, studentId: student.id, completedAt: record.completedAt });
+      } else throw new Error('Unsupported submission type.');
+      imported += 1;
+    } catch (error) { failures.push(`${file.name}: ${error.message}`); }
+  }
+  showToast(`${imported} USB submission${imported === 1 ? '' : 's'} imported${failures.length ? `; ${failures.length} rejected` : ''}.`, failures.length ? 'warning' : 'success');
+}
+
+function openSubmissionCollector() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.ccsub,application/json';
+  input.multiple = true;
+  input.addEventListener('change', async () => { if (input.files?.length) await collectSubmissionFiles(input.files); });
+  input.click();
 }
 
 function bindDashboardActionHandlers(navigate) {
@@ -648,6 +746,11 @@ function bindDashboardActionHandlers(navigate) {
   const importRosterBtn = document.getElementById('btn-import-roster');
   const printSlipsBtn = document.getElementById('btn-print-slips');
   const searchInput = document.getElementById('roster-search-input');
+  const manageUsersBtn = document.getElementById('btn-manage-users');
+  const auditLogBtn = document.getElementById('btn-view-audit-log');
+  const collectSubmissionsBtn = document.getElementById('btn-collect-submissions');
+
+  document.querySelectorAll('[data-workspace-route]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.workspaceRoute)));
 
   if (exportBtn) {
     exportBtn.addEventListener('click', async () => {
@@ -663,6 +766,7 @@ function bindDashboardActionHandlers(navigate) {
     });
   }
   if (labMonitorBtn) labMonitorBtn.addEventListener('click', () => navigate('/lab-monitor'));
+  if (collectSubmissionsBtn) collectSubmissionsBtn.addEventListener('click', () => openSubmissionCollector());
   if (lessonEditorBtn) lessonEditorBtn.addEventListener('click', () => navigate('/lesson-editor'));
   if (questionEditorBtn) questionEditorBtn.addEventListener('click', () => navigate('/question-editor'));
 
@@ -679,9 +783,15 @@ function bindDashboardActionHandlers(navigate) {
     });
   }
 
+  document.getElementById('overview-period')?.addEventListener('change', (event) => {
+    const text = document.getElementById('dashboard-live-status-text');
+    if (text) text.innerHTML = `<strong>View:</strong> ${event.currentTarget.value === 'today' ? 'Today’s available local activity.' : 'This term’s available local activity.'}`;
+  });
+
   if (classFilterSelect) {
     classFilterSelect.addEventListener('change', (e) => {
       selectedClassId = e.target.value;
+      setStaffClassContext(dashboardSnapshot?.classes || [], selectedClassId);
       void refreshDashboardView('manual');
     });
   }
@@ -703,6 +813,8 @@ function bindDashboardActionHandlers(navigate) {
       void showPrintLoginSlipsModal();
     });
   }
+  if (manageUsersBtn) manageUsersBtn.addEventListener('click', () => void showUserManagementModal());
+  if (auditLogBtn) auditLogBtn.addEventListener('click', () => void showAuditLogModal());
 
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -714,6 +826,17 @@ function bindDashboardActionHandlers(navigate) {
       }
     });
   }
+
+  document.querySelectorAll('[data-learner-filter]').forEach((control) => control.addEventListener('change', (event) => {
+    learnerFilters[event.currentTarget.dataset.learnerFilter] = event.currentTarget.value;
+    const container = document.getElementById('roster-table-container');
+    if (container && dashboardSnapshot) { container.innerHTML = renderStudentRoster(dashboardSnapshot); bindRosterInteractiveEvents(); }
+  }));
+  document.querySelectorAll('[data-class-directory-id]').forEach((button) => button.addEventListener('click', (event) => {
+    selectedClassId = event.currentTarget.dataset.classDirectoryId;
+    void refreshDashboardView('manual');
+  }));
+  document.querySelectorAll('[data-learner-profile]').forEach((button) => button.addEventListener('click', () => void showStudentDetailModal(Number(button.dataset.learnerProfile))));
 
   bindRosterInteractiveEvents();
 }
@@ -734,6 +857,10 @@ function bindRosterInteractiveEvents() {
     });
   });
 
+  document.querySelectorAll('.btn-quick-profile').forEach((btn) => {
+    btn.addEventListener('click', (event) => { event.stopPropagation(); void showStudentDetailModal(Number.parseInt(event.currentTarget.dataset.id, 10)); });
+  });
+
   document.querySelectorAll('.btn-quick-report-card').forEach((btn) => {
     btn.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -743,6 +870,11 @@ function bindRosterInteractiveEvents() {
       }
     });
   });
+
+  document.querySelectorAll('.btn-quick-edit-student').forEach((btn) => {
+    btn.addEventListener('click', (event) => { event.stopPropagation(); void handleEditStudent(Number.parseInt(event.currentTarget.dataset.id, 10)); });
+  });
+  document.getElementById('select-all-learners')?.addEventListener('change', (event) => document.querySelectorAll('.learner-select').forEach((input) => { input.checked = event.currentTarget.checked; }));
 }
 
 async function refreshDashboardView(reason = 'live-update') {
@@ -885,35 +1017,32 @@ export function teardownDashboardLiveUpdates() {
 }
 
 export async function renderDashboard() {
+  dashboardWorkspace = 'overview';
   await loadDashboardSnapshot();
+  return renderStaffShell({ title: 'Overview', subtitle: 'A focused view of learning, priorities, and the next staff action.', activePath: '/dashboard', content: `<div id="dashboard-live-root">${renderDashboardBody(dashboardSnapshot)}</div>` });
+}
 
-  return `
-    ${renderNav({ title: 'Teacher Dashboard', showBack: true, showSettings: true, showLogout: true })}
-    <div class="container view-enter dashboard-page" style="padding-top: var(--space-6);">
-      <div id="dashboard-live-root">
-        ${renderDashboardBody(dashboardSnapshot)}
-      </div>
-    </div>
-  `;
+export async function renderLearnersWorkspace() {
+  dashboardWorkspace = 'learners';
+  await loadDashboardSnapshot();
+  return renderStaffShell({ title: 'Classes & Learners', subtitle: 'Roster, access, and learner support for your assigned classes.', activePath: '/students', content: `<div id="dashboard-live-root">${renderDashboardBody(dashboardSnapshot)}</div>` });
 }
 
 export function bindDashboardEvents(navigate) {
   teardownDashboardLiveUpdates();
   activeDashboardNavigate = navigate;
 
-  bindNavEvents({
-    onBack: () => navigate('/'),
-    onSettings: showSettingsModal,
-    onLogout: () => {
+  bindStaffShell(navigate, { onLogout: () => {
       clearTeacherAuthenticated();
       navigate('/');
-    }
-  });
+  } });
 
   bindDashboardActionHandlers(navigate);
   void renderCharts();
   startDashboardLiveUpdates();
 }
+
+export function bindLearnersWorkspaceEvents(navigate) { bindDashboardEvents(navigate); }
 
 function showSettingsModal() {
   const currentKey = getApiKey() || '';
@@ -1002,6 +1131,41 @@ function showSettingsModal() {
       reader.readAsText(file);
     });
   }
+}
+
+async function showUserManagementModal() {
+  const [users, classes] = await Promise.all([getAllUsers(), getAllClasses()]);
+  const html = `
+    <div class="dashboard-panel" style="margin-bottom:var(--space-5);">
+      <h4 class="chart-card__title">Current staff accounts</h4>
+      ${users.map((user) => `<div style="padding:var(--space-2) 0; border-bottom:1px solid var(--color-slate-700);"><strong>${escapeHTML(user.name || user.username)}</strong> <span class="badge badge--primary">${escapeHTML(ROLE_LABELS[user.role] || user.role)}</span><br><small>@${escapeHTML(user.username)}${user.role === USER_ROLES.TEACHER ? ` · ${user.classIds?.length ? `${user.classIds.length} assigned class(es)` : 'No classes assigned'}` : ''}</small></div>`).join('')}
+    </div>
+    <form id="staff-account-form" style="display:grid;gap:var(--space-3);">
+      <h4 class="chart-card__title">Add staff account</h4>
+      <input class="input" id="staff-account-name" required placeholder="Full name">
+      <input class="input" id="staff-account-username" required pattern="[A-Za-z0-9._-]{3,40}" placeholder="Username">
+      <input class="input input--pin" id="staff-account-pin" required pattern="[0-9]{4,8}" maxlength="8" inputmode="numeric" placeholder="4–8 digit PIN">
+      <select class="input" id="staff-account-role">${Object.entries(ROLE_LABELS).map(([role, label]) => `<option value="${role}">${escapeHTML(label)}</option>`).join('')}</select>
+      <label style="font-size:var(--font-size-sm);">Assigned classes (Subject Teachers only)<select class="input" id="staff-account-classes" multiple size="${Math.min(Math.max(classes.length, 2), 5)}">${classes.map((entry) => `<option value="${entry.id}">${escapeHTML(entry.name)}</option>`).join('')}</select></label>
+      <button class="btn btn--primary" type="submit">Create staff account</button>
+    </form>`;
+  showModal('Staff accounts & role access', html, [{ label: 'Close', variant: 'btn--ghost' }], { modalClass: 'modal--wide' });
+  document.getElementById('staff-account-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const selected = [...document.getElementById('staff-account-classes').selectedOptions].map((option) => Number(option.value));
+      await createUser({ name: document.getElementById('staff-account-name').value.trim(), username: document.getElementById('staff-account-username').value.trim(), pin: document.getElementById('staff-account-pin').value.trim(), role: document.getElementById('staff-account-role').value, classIds: selected });
+      showToast('Staff account created.', 'success');
+      document.querySelector('.modal-backdrop')?.remove();
+      void refreshDashboardView('manual');
+    } catch (error) { showToast(error.message || 'Could not create staff account.', 'error'); }
+  });
+}
+
+async function showAuditLogModal() {
+  const entries = await getAuditLog();
+  const html = entries.length ? `<div style="max-height:60vh;overflow:auto;">${entries.map((entry) => `<div style="padding:var(--space-3) 0;border-bottom:1px solid var(--color-slate-700);"><strong>${escapeHTML(entry.action)}</strong><br><small>${new Date(entry.createdAt).toLocaleString()} · ${escapeHTML(entry.actor || 'system')}</small><br><small>${escapeHTML(JSON.stringify(entry.detail || {}))}</small></div>`).join('')}</div>` : '<p class="insight-empty">No audited actions yet.</p>';
+  showModal('System audit log', html, [{ label: 'Close', variant: 'btn--ghost' }], { modalClass: 'modal--wide' });
 }
 
 async function handleResetStudentPin(studentId) {

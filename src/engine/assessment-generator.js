@@ -323,6 +323,36 @@ export function getAssessmentBlueprintOptions() {
   }));
 }
 
+export function buildAssessmentFromQuestionBank(config, bankItems) {
+  const selected = bankItems.filter((item) => config.questionIds.includes(item.id));
+  if (!selected.length) throw new Error('Choose at least one saved question.');
+  const questions = selected.map((item, index) => {
+    const sourceType = item.type || 'short';
+    const type = ['mcq', 'true-false'].includes(sourceType) ? 'mcq' : sourceType === 'code' ? 'code' : 'short';
+    const options = sourceType === 'true-false' ? (item.options?.length ? item.options : ['True', 'False']) : item.options;
+    const answerIndex = Number.parseInt(item.answer, 10);
+    const correctIndex = type === 'mcq' ? (Number.isInteger(answerIndex) && options?.[answerIndex] ? answerIndex : Math.max(0, options?.findIndex((option) => option.toLowerCase() === String(item.answer || '').toLowerCase()) || 0)) : undefined;
+    const maxScore = type === 'mcq' ? 1 : 5;
+    return {
+      id: `${slugify(config.title || 'assessment')}-bank-q${index + 1}`,
+      sourceQuestionId: item.id,
+      type,
+      lessonId: item.lessonId || config.lessonIds?.[0] || 1,
+      objective: `${item.bloom || 'Knowledge'} question from the local question bank`,
+      prompt: item.prompt,
+      options: type === 'mcq' ? options : undefined,
+      correctIndex,
+      starterCode: type === 'code' ? item.starterCode || '' : undefined,
+      answerKey: item.answer || '',
+      sampleSolution: type === 'code' ? item.answer || '' : undefined,
+      rubric: [{ criterion: type === 'mcq' ? 'Correct answer' : 'Concept accuracy', description: 'Addresses the question accurately.', points: maxScore, keywords: [] }],
+      maxScore
+    };
+  });
+  const objectiveCoverage = questions.map((question) => ({ lessonId: question.lessonId, lessonTitle: lessons.find((lesson) => lesson.id === question.lessonId)?.title || 'Custom curriculum', objective: question.objective }));
+  return { title: config.title?.trim() || 'Question Bank Assessment', subject: 'Basic 7 Computing', generatedBy: 'question-bank', published: true, lessonIds: [...new Set(questions.map((question) => question.lessonId))], objectiveCoverage, durationMinutes: Math.max(10, Number.parseInt(config.durationMinutes, 10) || questions.length * 3), advancedFeature: 'Teacher-selected Question Bank', createdAt: new Date().toISOString(), questions };
+}
+
 export async function generateAssessment(config) {
   const normalizedConfig = {
     title: config.title?.trim() || 'Assessment Blueprint',

@@ -13,14 +13,19 @@ import './styles/assessment.css';
 import './styles/gradebook.css';
 import './styles/report-card.css';
 import './styles/lab-monitor.css';
+import './styles/staff-shell.css';
+import './styles/authentication.css';
 
 import { renderHome, bindHomeEvents } from './views/home.js';
 import { renderStudentLogin, bindStudentLoginEvents } from './views/student-login.js';
 import { renderTeacherLogin, bindTeacherLoginEvents } from './views/teacher-login.js';
-import { renderLessonList, bindLessonListEvents, renderLessonDetail, bindLessonDetailEvents } from './views/lesson-viewer.js';
+import { renderLessonList, bindLessonListEvents, renderLessonLibrary, bindLessonLibraryEvents, renderLessonsProgress, bindLessonsProgressEvents, renderLessonsReview, bindLessonsReviewEvents, renderLessonDetail, bindLessonDetailEvents } from './views/lesson-viewer.js';
 import { renderQuiz, bindQuizEvents, ensureQuizSession, clearQuizSession } from './views/quiz.js';
 import { renderQuizResults, bindQuizResultsEvents } from './views/quiz-results.js';
 import { renderDashboard, bindDashboardEvents, teardownDashboardLiveUpdates } from './views/dashboard.js';
+import { renderLearnersWorkspace, bindLearnersWorkspaceEvents } from './views/dashboard.js';
+import { renderAdministration, bindAdministrationEvents } from './views/administration.js';
+import { renderStaffAccessDenied, bindStaffAccessDenied } from './components/staff-shell.js';
 import { renderDiagnostic, bindDiagnosticEvents, ensureDiagnosticSession, clearDiagnosticSession } from './views/diagnostic.js';
 import { renderDiagnosticResults, bindDiagnosticResultsEvents } from './views/diagnostic-results.js';
 import { renderTutor, bindTutorEvents } from './views/tutor.js';
@@ -33,7 +38,7 @@ import { renderReportCard, bindReportCardEvents } from './views/report-card.js';
 import { renderLabMonitor, bindLabMonitorEvents, teardownLabMonitor } from './views/lab-monitor.js';
 import { renderLessonEditor, bindLessonEditorEvents } from './views/lesson-editor.js';
 import { renderQuestionEditor, bindQuestionEditorEvents } from './views/question-editor.js';
-import { getCurrentStudent, hydrateSettingsFromDB, isTeacherAuthenticated } from './engine/storage.js';
+import { getCurrentStudent, hasPermission, hydrateSettingsFromDB, isTeacherAuthenticated } from './engine/storage.js';
 import { initTheme } from './engine/theme.js';
 import { applyAccessibilitySettings } from './engine/speech.js';
 
@@ -74,6 +79,7 @@ window.addEventListener('popstate', () => {
 
 function requiresStudentAuth(path) {
   return path === '/lessons'
+    || path.startsWith('/lessons/')
     || path === '/diagnostic'
     || path === '/assessments'
     || path.startsWith('/diagnostic-results/')
@@ -85,7 +91,23 @@ function requiresStudentAuth(path) {
     || path === '/tutor';
 }
 
+function requiredTeacherPermission(path) {
+  if (path === '/dashboard') return 'dashboard';
+  if (path === '/students') return 'roster.manage';
+  if (path === '/admin') return 'users.manage';
+  if (path === '/assessment-lab') return 'assessment.manage';
+  if (path === '/lab-monitor') return 'lab.monitor';
+  if (path === '/lesson-editor' || path === '/question-editor') return 'cms.manage';
+  if (path === '/gradebook' || path === '/report-card' || path.startsWith('/report-card/')) return 'gradebook';
+  return null;
+}
+
 async function renderRoute() {
+  let accessDenied = false;
+  if (currentPath === '/dashboard/legacy') {
+    currentPath = '/dashboard';
+    window.history.replaceState({}, '', currentPath);
+  }
   if (currentPath === '/dashboard' && !isTeacherAuthenticated()) {
     currentPath = '/teacher-login';
     window.history.replaceState({}, '', '/teacher-login');
@@ -94,6 +116,15 @@ async function renderRoute() {
   if ((currentPath === '/assessment-lab' || currentPath === '/lab-monitor') && !isTeacherAuthenticated()) {
     currentPath = '/teacher-login';
     window.history.replaceState({}, '', '/teacher-login');
+  }
+
+  const requiredPermission = requiredTeacherPermission(currentPath);
+  if (requiredPermission && (!isTeacherAuthenticated() || !hasPermission(requiredPermission))) {
+    if (isTeacherAuthenticated()) accessDenied = true;
+    else {
+      currentPath = '/teacher-login';
+      window.history.replaceState({}, '', currentPath);
+    }
   }
 
   if (requiresStudentAuth(currentPath) && !getCurrentStudent()) {
@@ -132,18 +163,30 @@ async function renderRoute() {
   let html = '';
   let bindEvents = () => {};
 
-  if (currentPath === '/' || currentPath === '/index.html') {
+  if (accessDenied) {
+    html = renderStaffAccessDenied('/dashboard');
+    bindEvents = () => bindStaffAccessDenied(navigate);
+  } else if (currentPath === '/' || currentPath === '/index.html') {
     html = renderHome();
     bindEvents = () => bindHomeEvents(navigate);
   } else if (currentPath === '/student-login') {
     html = await renderStudentLogin();
     bindEvents = () => bindStudentLoginEvents(navigate);
   } else if (currentPath === '/teacher-login') {
-    html = renderTeacherLogin();
+    html = await renderTeacherLogin();
     bindEvents = () => bindTeacherLoginEvents(navigate);
   } else if (currentPath === '/lessons') {
     html = await renderLessonList();
     bindEvents = () => bindLessonListEvents(navigate);
+  } else if (currentPath === '/lessons/library') {
+    html = await renderLessonLibrary();
+    bindEvents = () => bindLessonLibraryEvents(navigate);
+  } else if (currentPath === '/lessons/progress') {
+    html = await renderLessonsProgress();
+    bindEvents = () => bindLessonsProgressEvents(navigate);
+  } else if (currentPath === '/lessons/review') {
+    html = await renderLessonsReview();
+    bindEvents = () => bindLessonsReviewEvents(navigate);
   } else if (currentPath === '/assessments') {
     html = await renderAssessmentCenter();
     bindEvents = () => bindAssessmentCenterEvents(navigate);
@@ -156,7 +199,8 @@ async function renderRoute() {
     html = await renderDiagnosticResults(id);
     bindEvents = () => bindDiagnosticResultsEvents(navigate, id);
   } else if (currentPath.startsWith('/lesson/')) {
-    const id = Number.parseInt(currentPath.split('/')[2], 10);
+    const lessonRouteId = currentPath.split('/')[2];
+    const id = lessonRouteId.startsWith('custom-') ? lessonRouteId : Number.parseInt(lessonRouteId, 10);
     html = await renderLessonDetail(id);
     bindEvents = () => bindLessonDetailEvents(navigate, id);
   } else if (currentPath.startsWith('/quiz/')) {
@@ -202,6 +246,12 @@ async function renderRoute() {
   } else if (currentPath === '/dashboard') {
     html = await renderDashboard();
     bindEvents = () => bindDashboardEvents(navigate);
+  } else if (currentPath === '/students') {
+    html = await renderLearnersWorkspace();
+    bindEvents = () => bindLearnersWorkspaceEvents(navigate);
+  } else if (currentPath === '/admin') {
+    html = await renderAdministration();
+    bindEvents = () => bindAdministrationEvents(navigate);
   } else {
     navigate('/', false);
     return;

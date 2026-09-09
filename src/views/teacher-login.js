@@ -1,115 +1,17 @@
-/**
- * ClassConnect — Teacher Login / Setup View
- */
-
+/** ClassConnect — RBAC teacher sign-in and initial administrator setup. */
 import { renderNav, bindNavEvents } from '../components/nav.js';
 import { showToast } from '../components/ui.js';
-import {
-  getApiKey,
-  getTeacherPin,
-  setApiKeyAsync,
-  setTeacherAuthenticated,
-  setTeacherPinAsync
-} from '../engine/storage.js';
+import { USER_ROLES, ROLE_LABELS, authenticateUser, createUser, getAllUsers, provisionLegacyAdmin, setTeacherSession } from '../engine/storage.js';
 
-export function renderTeacherLogin() {
-  const teacherPin = getTeacherPin();
-  const isSetupMode = !teacherPin;
+let loginState = { users: [] };
 
-  return `
-    ${renderNav({ title: 'Teacher Access', showBack: true })}
-    <div class="container container--narrow view-enter" style="padding-top: var(--space-8); padding-bottom: var(--space-12);">
-      <div class="card card--glass">
-        <div style="text-align: center; margin-bottom: var(--space-8);">
-          <h2 class="card__title" style="font-size: var(--font-size-2xl);">
-            ${isSetupMode ? 'Set Up Teacher Access' : 'Teacher Sign In'}
-          </h2>
-          <p class="card__subtitle">
-            ${isSetupMode
-              ? 'Create a 4-digit teacher PIN for this device. You can also save a Gemini API key now or later.'
-              : 'Enter your teacher PIN to open the dashboard on this device.'}
-          </p>
-        </div>
-
-        <form id="teacher-access-form" style="display: flex; flex-direction: column; gap: var(--space-6);">
-          <div class="input-group">
-            <label for="teacher-pin">${isSetupMode ? 'Create 4-digit Teacher PIN' : 'Teacher PIN'}</label>
-            <input type="password" id="teacher-pin" class="input input--pin" placeholder="0000" required pattern="[0-9]{4}" maxlength="4" inputmode="numeric">
-          </div>
-
-          ${isSetupMode ? `
-            <div class="input-group">
-              <label for="teacher-pin-confirm">Confirm Teacher PIN</label>
-              <input type="password" id="teacher-pin-confirm" class="input input--pin" placeholder="0000" required pattern="[0-9]{4}" maxlength="4" inputmode="numeric">
-            </div>
-            <div class="input-group">
-              <label for="teacher-api-key">Gemini API Key (optional)</label>
-              <input type="password" id="teacher-api-key" class="input" value="${getApiKey() || ''}" placeholder="AIzaSy...">
-            </div>
-          ` : ''}
-
-          <button type="submit" class="btn btn--primary btn--lg btn--full">
-            ${isSetupMode ? 'Save PIN and Open Dashboard' : 'Open Dashboard'}
-          </button>
-        </form>
-      </div>
-    </div>
-    <div class="bg-pattern"></div>
-  `;
+export async function renderTeacherLogin() {
+  await provisionLegacyAdmin(); loginState.users = await getAllUsers(); const setup = loginState.users.length === 0;
+  return `${renderNav({ title: 'Staff Access', showBack: true })}<main class="auth-page view-enter"><section class="auth-layout" aria-labelledby="staff-login-title"><aside class="auth-intro"><div class="auth-brand"><span class="auth-brand__mark" aria-hidden="true">⌁</span><span class="auth-brand__name">ClassConnect</span></div><div class="auth-intro__content"><p class="auth-kicker">Staff workspace</p><h1 class="auth-intro__title">The information you need to support every learner.</h1><p class="auth-intro__text">Secure access to progress, learning resources, and your school’s assessment tools.</p></div><div class="auth-benefits"><p class="auth-benefit"><span class="auth-benefit__icon" aria-hidden="true">✓</span>Role-based access for every member of staff.</p><p class="auth-benefit"><span class="auth-benefit__icon" aria-hidden="true">✓</span>Designed to work reliably in the classroom.</p></div></aside><div class="auth-panel"><header class="auth-panel__header"><p class="auth-panel__eyebrow">${setup ? 'First-time setup' : 'Staff sign in'}</p><h1 class="auth-panel__title" id="staff-login-title">${setup ? 'Set up your school' : 'Welcome back'}</h1><p class="auth-panel__subtitle">${setup ? 'Create the first administrator account. You can add teachers and invigilators later.' : 'Enter your individual staff credentials to open the dashboard.'}</p></header><form id="teacher-access-form" class="auth-form">${setup ? '<div class="input-group"><label for="staff-name">Full name</label><input id="staff-name" class="input" required maxlength="80" autocomplete="name" placeholder="e.g., Mrs. Ama Mensah"></div>' : ''}<div class="input-group"><label for="staff-username">Username</label><input id="staff-username" class="input" required pattern="[A-Za-z0-9._-]{3,40}" autocomplete="username" placeholder="e.g., ama.mensah"></div><div class="input-group"><label for="staff-pin">${setup ? 'Administrator PIN (4–8 digits)' : 'Account PIN'}</label><input type="password" id="staff-pin" class="input input--pin" required pattern="[0-9]{4,8}" maxlength="8" inputmode="numeric" autocomplete="current-password" placeholder="••••"></div>${setup ? '<div class="input-group"><label for="staff-pin-confirm">Confirm PIN</label><input type="password" id="staff-pin-confirm" class="input input--pin" required pattern="[0-9]{4,8}" maxlength="8" inputmode="numeric" autocomplete="new-password" placeholder="••••"></div>' : ''}<button type="submit" class="btn btn--primary btn--lg btn--full auth-form__submit">${setup ? 'Create account and open dashboard' : 'Sign in to dashboard'}</button></form><p class="auth-panel__footer"><strong>Secure staff access.</strong> Use only your own account and sign out when you finish on a shared device.</p></div></section></main><div class="bg-pattern"></div>`;
 }
 
 export function bindTeacherLoginEvents(navigate) {
-  bindNavEvents({
-    onBack: () => navigate('/')
-  });
-
-  const existingPin = getTeacherPin();
-  const isSetupMode = !existingPin;
-  const form = document.getElementById('teacher-access-form');
-  const pinInput = document.getElementById('teacher-pin');
-  const confirmInput = document.getElementById('teacher-pin-confirm');
-  const apiKeyInput = document.getElementById('teacher-api-key');
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    const pin = pinInput.value.trim();
-    if (!/^\d{4}$/.test(pin)) {
-      showToast('Enter a valid 4-digit teacher PIN.', 'error');
-      return;
-    }
-
-    if (isSetupMode) {
-      const confirmed = confirmInput?.value.trim();
-      if (pin !== confirmed) {
-        showToast('Teacher PINs do not match yet.', 'error');
-        return;
-      }
-
-      try {
-        await setTeacherPinAsync(pin);
-
-        if (apiKeyInput?.value.trim()) {
-          await setApiKeyAsync(apiKeyInput.value.trim());
-        }
-
-        setTeacherAuthenticated(true);
-        showToast('Teacher access saved for this device.', 'success');
-        navigate('/dashboard');
-      } catch (error) {
-        console.error(error);
-        showToast('Unable to save teacher access right now.', 'error');
-      }
-
-      return;
-    }
-
-    if (pin !== existingPin) {
-      showToast('That teacher PIN is not correct.', 'error');
-      return;
-    }
-
-    setTeacherAuthenticated(true);
-    navigate('/dashboard');
-  });
+  bindNavEvents({ onBack: () => navigate('/') }); const setup = loginState.users.length === 0;
+  document.getElementById('teacher-access-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const username = document.getElementById('staff-username')?.value.trim(); const pin = document.getElementById('staff-pin')?.value.trim(); try { if (setup) { if (pin !== document.getElementById('staff-pin-confirm')?.value.trim()) throw new Error('PINs do not match.'); const user = await createUser({ name: document.getElementById('staff-name')?.value.trim(), username, pin, role: USER_ROLES.ADMIN }); setTeacherSession(user); showToast('Administrator account created.', 'success'); } else { const result = await authenticateUser(username, pin); if (!result.user) throw new Error(result.error); setTeacherSession(result.user); showToast(`Welcome, ${result.user.name || result.user.username}.`, 'success'); } navigate('/dashboard'); } catch (error) { showToast(error.message || 'Unable to sign in.', 'error'); } });
 }
+export { ROLE_LABELS };

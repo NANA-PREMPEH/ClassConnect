@@ -318,6 +318,20 @@ src/
 
 ## Deployment Guide
 
+## Staff Workspace Guide
+
+After staff sign-in, ClassConnect opens a role-aware school workspace instead of a single long dashboard.
+
+- **Overview** provides priority learner signals, recent activity, learning insights, and quick links.
+- **Classes & Learners** contains the class directory, roster search and filters, learner profiles, PIN resets, transfers, imports, login slips, and report-card access.
+- **Assessments** is for authorised subject staff to generate, publish, review submissions, and inspect assessment analysis.
+- **Gradebook & Reports** provides the GES-aligned broadsheet, weighting controls, exports, and report cards.
+- **Curriculum** contains lesson authoring, lesson packs, and the reusable question bank.
+- **Lab Monitor** is the invigilator-safe live operational workspace.
+- **Administration** is available only to administrators for staff accounts, classes, backups/restoration, and audit records.
+
+Subject teachers see only their assigned classes. Lab technicians/invigilators see only the Lab Monitor, keeping learner records, grades, answer keys, backups, and staff administration out of their interface.
+
 ### Vercel
 
 1. Import the repository into Vercel.
