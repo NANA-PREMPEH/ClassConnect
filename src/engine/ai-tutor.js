@@ -4,9 +4,7 @@
  */
 
 import { lessons } from '../data/lessons.js';
-import { getApiKey } from './storage.js';
-
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+import { generateWithServerAI } from './ai-client.js';
 
 function lessonReferenceText(lesson) {
   const objectives = lesson.objectives.slice(0, 2).join('; ');
@@ -69,35 +67,7 @@ function fallbackTutorReply(message, profile) {
 }
 
 async function callGemini(prompt) {
-  const apiKey = getApiKey();
-  if (!apiKey || !navigator.onLine) {
-    return null;
-  }
-
-  try {
-    const response = await fetch(`${GEMINI_API_BASE}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.6,
-          maxOutputTokens: 300,
-          topP: 0.9
-        }
-      }),
-      signal: AbortSignal.timeout(12000)
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-  } catch {
-    return null;
-  }
+  return generateWithServerAI(prompt, { temperature: 0.6, maxOutputTokens: 300, topP: 0.9 });
 }
 
 export async function generateDiagnosticInsight(student, diagnostic, profile) {

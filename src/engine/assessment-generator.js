@@ -5,9 +5,7 @@
 
 import { lessons } from '../data/lessons.js';
 import { quizBank } from '../data/quiz-bank.js';
-import { getApiKey } from './storage.js';
-
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+import { generateWithServerAI } from './ai-client.js';
 
 const codingTemplatesByLesson = {
   1: {
@@ -237,9 +235,6 @@ function buildFallbackAssessment(config) {
 }
 
 async function tryGenerateWithAI(config) {
-  const apiKey = getApiKey();
-  if (!apiKey || !navigator.onLine) return null;
-
   const lessonPool = getLessonPool(config.lessonIds);
   const lessonContext = lessonPool.map((lesson) => [
     `Lesson ${lesson.id}: ${lesson.title}`,
@@ -264,23 +259,7 @@ async function tryGenerateWithAI(config) {
   ].join('\n\n');
 
   try {
-    const response = await fetch(`${GEMINI_API_BASE}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1200,
-          topP: 0.9
-        }
-      }),
-      signal: AbortSignal.timeout(15000)
-    });
-
-    if (!response.ok) return null;
-    const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const text = await generateWithServerAI(prompt, { temperature: 0.7, maxOutputTokens: 1200, topP: 0.9 }, 15000);
     if (!text) return null;
 
     const parsed = JSON.parse(extractJsonObject(text));

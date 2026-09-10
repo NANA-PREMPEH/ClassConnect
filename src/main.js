@@ -41,8 +41,10 @@ import { renderQuestionEditor, bindQuestionEditorEvents } from './views/question
 import { getCurrentStudent, hasPermission, hydrateSettingsFromDB, isTeacherAuthenticated } from './engine/storage.js';
 import { initTheme } from './engine/theme.js';
 import { applyAccessibilitySettings } from './engine/speech.js';
+import { startCloudSync } from './engine/cloud-sync.js';
 
 let currentPath = window.location.pathname;
+startCloudSync();
 const appRoot = document.getElementById('app');
 const SETTINGS_HYDRATION_TIMEOUT_MS = 4000;
 

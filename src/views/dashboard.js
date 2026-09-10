@@ -26,9 +26,7 @@ import {
   bulkCreateStudents,
   downloadFullSchoolBackup,
   restoreFullSchoolBackup,
-  getApiKey,
   getTeacherPin,
-  setApiKeyAsync,
   setTeacherPinAsync,
   subscribeToDataChanges,
   getCurrentTeacher,
@@ -1045,13 +1043,11 @@ export function bindDashboardEvents(navigate) {
 export function bindLearnersWorkspaceEvents(navigate) { bindDashboardEvents(navigate); }
 
 function showSettingsModal() {
-  const currentKey = getApiKey() || '';
   const currentPin = getTeacherPin() || '';
   const html = `
     <div class="input-group" style="margin-bottom: var(--space-4);">
-      <label>Google Gemini API Key</label>
-      <input type="password" id="settings-api-key" class="input" value="${currentKey}" placeholder="AIzaSy...">
-      <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-top: var(--space-2);">Used for quiz explanations, diagnostic coaching, and the AI tutor. You can update this any time.</p>
+      <label>AI service</label>
+      <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-top: var(--space-2);">AI requests use the school’s securely configured server service. A Gemini key is never stored in this browser.</p>
     </div>
     <div class="input-group">
       <label>Teacher PIN</label>
@@ -1079,9 +1075,7 @@ function showSettingsModal() {
       label: 'Save',
       variant: 'btn--primary',
       onClick: async () => {
-        const apiKeyInput = document.getElementById('settings-api-key');
         const teacherPinInput = document.getElementById('settings-teacher-pin');
-        const apiKey = apiKeyInput?.value.trim() || '';
         const teacherPin = teacherPinInput?.value.trim() || '';
 
         if (teacherPin && !/^\d{4}$/.test(teacherPin)) {
@@ -1089,7 +1083,6 @@ function showSettingsModal() {
           return false;
         }
 
-        await setApiKeyAsync(apiKey);
         if (teacherPin) {
           await setTeacherPinAsync(teacherPin);
         }

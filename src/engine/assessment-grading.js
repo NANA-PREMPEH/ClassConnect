@@ -3,9 +3,7 @@
  * Grades mixed-format assessments with rubric alignment and AI enhancement.
  */
 
-import { getApiKey } from './storage.js';
-
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+import { generateWithServerAI } from './ai-client.js';
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -35,27 +33,8 @@ function buildFeedback(summaryParts) {
 }
 
 async function callGemini(prompt) {
-  const apiKey = getApiKey();
-  if (!apiKey || !navigator.onLine) return null;
-
   try {
-    const response = await fetch(`${GEMINI_API_BASE}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 400,
-          topP: 0.85
-        }
-      }),
-      signal: AbortSignal.timeout(12000)
-    });
-
-    if (!response.ok) return null;
-    const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const text = await generateWithServerAI(prompt, { temperature: 0.3, maxOutputTokens: 400, topP: 0.85 });
     if (!text) return null;
 
     const jsonText = text.includes('{')

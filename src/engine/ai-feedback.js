@@ -5,14 +5,12 @@
 
 import { fallbackHints } from '../data/fallback-hints.js';
 import {
-  getApiKey,
   getFeedbackCacheEntry,
   getQuestionFeedbackCache,
   markFeedbackCacheUsed,
   saveFeedbackCacheEntry
 } from './storage.js';
-
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+import { generateWithServerAI } from './ai-client.js';
 const GENERIC_FALLBACK = 'Review the lesson material to understand why the correct answer is right. Try reading the relevant section again!';
 const pendingFeedbackRequests = new Map();
 
@@ -112,7 +110,6 @@ async function resolveOfflineFeedback({
 }
 
 async function requestFreshFeedback({
-  apiKey,
   questionId,
   stem,
   studentAnswer,
@@ -123,35 +120,8 @@ async function requestFreshFeedback({
 }) {
   try {
     const prompt = buildPrompt(stem, studentAnswer, correctAnswer);
-    const response = await fetch(`${GEMINI_API_BASE}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.6,
-          maxOutputTokens: 180,
-          topP: 0.9
-        }
-      }),
-      signal: AbortSignal.timeout(10000)
-    });
-
-    if (!response.ok) {
-      console.warn('Gemini API error, using offline fallback:', response.status);
-      return resolveOfflineFeedback({
-        questionId,
-        stem,
-        correctAnswer,
-        cacheKey,
-        cachedEntry,
-        allowQuestionCache
-      });
-    }
-
-    const data = await response.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    const text = sanitizeFeedbackText(rawText);
+    const rawText = await generateWithServerAI(prompt, { temperature: 0.6, maxOutputTokens: 180, topP: 0.9 }, 10000);
+    const text = sanitizeFeedbackText(rawText || '');
 
     if (!text) {
       return resolveOfflineFeedback({
@@ -203,11 +173,10 @@ export async function generateFeedback(questionId, stem, studentAnswer, correctA
     allowQuestionCache = true
   } = options;
 
-  const apiKey = getApiKey();
   const cacheKey = buildFeedbackCacheKey(questionId, studentAnswer, correctAnswer);
   const cachedEntry = await getFeedbackCacheEntry(cacheKey);
 
-  if (!apiKey || !navigator.onLine) {
+  if (!navigator.onLine) {
     return resolveOfflineFeedback({
       questionId,
       stem,
@@ -228,7 +197,6 @@ export async function generateFeedback(questionId, stem, studentAnswer, correctA
   }
 
   const request = requestFreshFeedback({
-    apiKey,
     questionId,
     stem,
     studentAnswer,
@@ -284,5 +252,5 @@ export async function generateAllFeedback(responses) {
  * Check if AI feedback is available right now.
  */
 export function isAIAvailable() {
-  return !!getApiKey() && navigator.onLine;
+  return navigator.onLine;
 }

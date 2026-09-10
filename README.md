@@ -337,7 +337,10 @@ Subject teachers see only their assigned classes. Lab technicians/invigilators s
 1. Import the repository into Vercel.
 2. Keep the default Vite build command: `npm run build`.
 3. Keep the output directory as `dist`.
-4. Deploy over HTTPS so service workers can register correctly.
+4. Add `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_AI_MODEL` in **Project Settings → Environment Variables** if you want AI features. These are used only by the Vercel server function and must not be added as `VITE_*` variables.
+5. Deploy over HTTPS so service workers can register correctly.
+
+The project includes `vercel.json` so direct links to client-side routes resolve to the app. The planned shared-data provider is Supabase Postgres with Supabase Auth; see [the database and Vercel migration checklist](tasks/database-vercel-migration-checklist.md) for the migration work.
 
 ### GitHub Pages
 

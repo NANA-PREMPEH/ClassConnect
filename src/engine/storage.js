@@ -4,6 +4,7 @@
  */
 
 import { openDB } from 'idb';
+import { queueDataChange } from './cloud-sync.js';
 
 const DB_NAME = 'classconnect';
 const DB_VERSION = 9;
@@ -78,6 +79,8 @@ function emitDataChange(store, action, record = null) {
   } catch {
     // BroadcastChannel may be unavailable in restricted contexts.
   }
+
+  void queueDataChange({ ...payload, record });
 
   return payload;
 }
