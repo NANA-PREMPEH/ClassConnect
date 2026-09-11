@@ -23,10 +23,10 @@ Device change queue → nested JSONB sync vault → Postgres trigger → relatio
 
 ## Authentication, access, and storage
 
-- [ ] Configure Supabase Auth for approved student and staff sign-in methods.
-- [ ] Replace browser-only teacher PIN sessions with Supabase Auth sessions and role-aware profiles.
-- [ ] Add school, class, enrolment, staff-assignment, student-progress, assessment, and submission tables.
-- [ ] Add Row Level Security policies so students access only their own records, teachers access only assigned classes, and administrators access only their school.
+- [x] Configure Supabase Auth client support for approved student and staff sign-in methods.
+- [x] Replace browser-only teacher PIN sessions with Supabase Auth sessions and role-aware profiles when Supabase is configured.
+- [x] Add school, class, enrolment, staff-assignment, student-progress, assessment, and submission tables.
+- [x] Add Row Level Security policies so students access only their own records, teachers access only assigned classes, and administrators access only their school.
 - [ ] Store report exports, backup files, and approved lesson assets in Supabase Storage with bucket-level access policies.
 - [ ] Add audit records for staff administration, assessment publication, grade changes, and backup/restore actions.
 

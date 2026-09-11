@@ -888,6 +888,7 @@ export function getCurrentStudent() {
 
 export function clearCurrentStudent() {
   sessionStorage.removeItem(CURRENT_STUDENT_KEY);
+  void import('./supabase-auth.js').then(({ signOutFromSupabase }) => signOutFromSupabase());
 }
 
 export function setTeacherAuthenticated(authenticated = true) {
@@ -926,6 +927,7 @@ export function isTeacherAuthenticated() {
 
 export function clearTeacherAuthenticated() {
   sessionStorage.removeItem(TEACHER_SESSION_KEY);
+  void import('./supabase-auth.js').then(({ signOutFromSupabase }) => signOutFromSupabase());
 }
 
 export function setStaffClassContext(classes = [], selectedClassId = 'all') {
